@@ -4,6 +4,10 @@
 
 ## Example usage
 
+While `microrm` is designed as a minimal ORM, its primary goal is to reduce boilerplate and help developers fall into the "put of success". For example, all queries run through `microrm` use named parameters to avoid easy-to-make mistakes with positional parameters.
+
+e.g. `SELECT * FROM users WHERE id = $ID` instead of `SELECT * FROM users WHERE id = ?`.
+
 ```go
 conn := sql.Open("sqlite3", ":memory:")
 defer conn.Close()
@@ -21,11 +25,16 @@ var user User
 _ := db.Get(&user, "WHERE id = $ID", map[string]any{"ID": 1})
 ```
 
+### Escaping $
+
+Since `microrm` uses `$` for named parameters, if you need to use a literal `$` in your SQL (e.g. in a string), you can escape it by using `$$`.
+
 ## Features (and to-do)
 
 - [x] Support for `select`ing data via `DB.Select`.
 - [ ] Support for `insert`ing data via `DB.Insert`.
 - [ ] Support for `update`ing data via `DB.Update`.
 - [ ] Support for `delete`ing data via `DB.Delete`.
+- [ ] Update `created_at` and `updated_at` fields automatically.
 
 Got feature requests or suggestions? Please open an issue or a PR!
