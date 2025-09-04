@@ -40,6 +40,7 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [x] Support for `insert`ing data via `DB.Insert`.
 - [ ] Support for `update`ing data via `DB.Update`.
 - [ ] Support for `delete`ing data via `DB.Delete`.
+- [ ] Support for transactions via TODO
 - [ ] Updates `created_at` and `updated_at` fields automatically.
 
 Got feature requests or suggestions? Please open an issue or a PR!
