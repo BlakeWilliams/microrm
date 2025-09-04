@@ -386,6 +386,133 @@ func TestTransaction(t *testing.T) {
 	})
 }
 
+func TestDelete(t *testing.T) {
+	t.Run("delete single record by key", func(t *testing.T) {
+		kv := &KeyValue{
+			Key:   "test.delete.single",
+			Value: "to be deleted",
+		}
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+		require.NotEqual(t, 0, kv.ID)
+
+		var retrievedKV KeyValue
+		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+			"key": "test.delete.single",
+		})
+		require.NoError(t, err)
+
+		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` = $key", map[string]any{
+			"key": "test.delete.single",
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+
+		var deletedKV KeyValue
+		err = testDB.Select(&deletedKV, "WHERE `key` = $key", map[string]any{
+			"key": "test.delete.single",
+		})
+		require.Error(t, err)
+		require.Equal(t, sql.ErrNoRows, err)
+	})
+
+	t.Run("delete multiple records with pattern", func(t *testing.T) {
+		testRecords := []KeyValue{
+			{Key: "test.delete.multi.1", Value: "first"},
+			{Key: "test.delete.multi.2", Value: "second"},
+			{Key: "test.delete.multi.3", Value: "third"},
+		}
+
+		for i := range testRecords {
+			err := testDB.Insert(&testRecords[i])
+			require.NoError(t, err)
+		}
+
+		var kvs []KeyValue
+		err := testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+			"pattern": "test.delete.multi.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, kvs, 3)
+
+		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` LIKE $pattern", map[string]any{
+			"pattern": "test.delete.multi.%",
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(3), rowsAffected)
+
+		var deletedKVs []KeyValue
+		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+			"pattern": "test.delete.multi.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, deletedKVs, 0)
+	})
+
+	t.Run("delete by ID", func(t *testing.T) {
+		kv := &KeyValue{
+			Key:   "test.delete.by.id",
+			Value: "delete by ID test",
+		}
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+		require.NotEqual(t, 0, kv.ID)
+		insertedID := kv.ID
+
+		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE id = $id", map[string]any{
+			"id": insertedID,
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+
+		var deletedKV KeyValue
+		err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+			"id": insertedID,
+		})
+		require.Error(t, err)
+		require.Equal(t, sql.ErrNoRows, err)
+	})
+
+	t.Run("delete non-existent record returns zero rows affected", func(t *testing.T) {
+		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` = $key", map[string]any{
+			"key": "non.existent.key.for.delete",
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(0), rowsAffected)
+	})
+
+	t.Run("delete with complex WHERE clause", func(t *testing.T) {
+		// Insert test records
+		testRecords := []KeyValue{
+			{Key: "test.delete.complex.keep", Value: "keep this"},
+			{Key: "test.delete.complex.remove1", Value: "remove this"},
+			{Key: "test.delete.complex.remove2", Value: "remove this too"},
+			{Key: "test.delete.complex.keep2", Value: "keep this too"},
+		}
+
+		for i := range testRecords {
+			err := testDB.Insert(&testRecords[i])
+			require.NoError(t, err)
+		}
+
+		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` LIKE $keyPattern AND `value` LIKE $valuePattern", map[string]any{
+			"keyPattern":   "test.delete.complex.remove%",
+			"valuePattern": "%remove%",
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(2), rowsAffected)
+
+		var remainingKVs []KeyValue
+		err = testDB.Select(&remainingKVs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+			"pattern": "test.delete.complex.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, remainingKVs, 2)
+		require.Equal(t, "test.delete.complex.keep", remainingKVs[0].Key)
+		require.Equal(t, "test.delete.complex.keep2", remainingKVs[1].Key)
+	})
+}
+
 func setupTestDatabase(rootDSN, dsn, database string) error {
 	rootDB, err := sql.Open("mysql", rootDSN)
 	if err != nil {

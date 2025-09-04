@@ -168,6 +168,41 @@ func (d *DB) Insert(dest any) error {
 	return nil
 }
 
+// Delete deletes records from the database based on the provided struct type
+// and SQL fragment with named parameters.	 The dest parameter should be a
+// pointer to a struct type representing the table to delete from.
+//
+// It returns the number of rows affected, or an error if the operation fails.
+func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, error) {
+	destType, err := identifyRootType(dest)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete data: %w", err)
+	}
+
+	fragment, args, err := d.replaceNames(rawSql, rawArgs)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare delete query: %w", err)
+	}
+
+	tableName := snake_case(destType.Name())
+	if rename, ok := d.nameMap[destType.Name()]; ok {
+		tableName = rename
+	}
+
+	deleteSQL := fmt.Sprintf("DELETE FROM %s %s", tableName, fragment)
+	res, err := d.db.Exec(deleteSQL, args...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute delete: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to retrieve rows affected: %w", err)
+	}
+
+	return n, nil
+}
+
 // Transaction executes the provided function within a database transaction. If
 // the function returns an error, the transaction is rolled back, otherwise it
 // is committed.
