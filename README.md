@@ -43,4 +43,8 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [x] Support for transactions via `DB.Transaction`
 - [ ] Updates `created_at` and `updated_at` fields automatically.
 
+Not in scope, but welcome contributions:
+
+- [ ] Support for non-MySQL databases
+
 Got feature requests or suggestions? Please open an issue or a PR!
