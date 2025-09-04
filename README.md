@@ -1,4 +1,4 @@
-# microrm
+# micrORM
 
 `microrm` is a minimalistic "ORM" for Go that provides basic utilities for mapping Go structs to database tables with a focus on ease-of-use.
 
