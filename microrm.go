@@ -7,15 +7,24 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"unicode"
 )
 
 var ErrArrayNotSupported = errors.New("array types are not supported")
 
+// enable using db or tx in the DB struct
+type queryable interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // DB represents a database connection and provides methods for executing queries and mapping results to structs.
 type DB struct {
-	db      *sql.DB
+	db      queryable
 	nameMap map[string]string
+	mu      sync.Mutex
 }
 
 // New initializes a new DB instance with the provided sql.DB connection.
@@ -24,12 +33,17 @@ func New(db *sql.DB) *DB {
 }
 
 func (d *DB) MapNameToTable(structName, tableName string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.nameMap[structName] = tableName
 }
 
 // Close closes the underlying database connection.
 func (d *DB) Close() error {
-	return d.db.Close()
+	if db, ok := d.db.(*sql.DB); ok {
+		return db.Close()
+	}
+	return nil
 }
 
 // Select executes a query and scans the result into the provided destination struct or slice of structs.
@@ -49,6 +63,7 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("failed to execute Select query: %w", err)
 	}
+	defer rows.Close()
 
 	rootType := reflect.TypeOf(dest)
 	isSlice := rootType.Kind() == reflect.Slice || rootType.Kind() == reflect.Pointer && rootType.Elem().Kind() == reflect.Slice
@@ -89,8 +104,7 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 }
 
 // Insert inserts a new record into the database based on the provided struct.
-func (d DB) Insert(dest any) error {
-	destValue := reflect.ValueOf(dest)
+func (d *DB) Insert(dest any) error {
 	destType := reflect.TypeOf(dest)
 	if destType.Kind() != reflect.Pointer {
 		return fmt.Errorf("destination must be a pointer to a struct, got %s", destType.Kind())
@@ -109,11 +123,6 @@ func (d DB) Insert(dest any) error {
 	for i := 0; i < destRootType.NumField(); i++ {
 		field := destRootType.Field(i)
 		if !field.IsExported() {
-			continue
-		}
-
-		// Skip zero-value fields to allow for auto-increment and default values
-		if destValue.Elem().FieldByName(field.Name).IsZero() {
 			continue
 		}
 
@@ -139,7 +148,6 @@ func (d DB) Insert(dest any) error {
 	}
 
 	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tableName, insertColumns.String(), insertValuePlaceholders.String())
-	fmt.Println("INSERT SQL:", insertSQL)
 
 	res, err := d.db.Exec(insertSQL, insertColumnData...)
 	if err != nil {
@@ -158,6 +166,39 @@ func (d DB) Insert(dest any) error {
 	}
 
 	return nil
+}
+
+// Transaction executes the provided function within a database transaction. If
+// the function returns an error, the transaction is rolled back, otherwise it
+// is committed.
+//
+// Transactions can not be nested at this time.
+func (d *DB) Transaction(fn func(tx *DB) error) error {
+	if _, ok := d.db.(*sql.DB); !ok {
+		return fmt.Errorf("nested transactions are not supported")
+	}
+	tx, err := d.db.(*sql.DB).Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			err = tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			err = tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	txDB := &DB{
+		db:      tx,
+		nameMap: d.nameMap,
+	}
+
+	err = fn(txDB)
+	return err
 }
 
 func scanStruct(fields []string, rows *sql.Rows, dest reflect.Value) error {

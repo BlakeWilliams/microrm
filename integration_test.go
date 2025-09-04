@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	if testDB != nil {
-		if err := cleanupTestTables(testDB.db); err != nil {
+		if err := cleanupTestTables(testDB.db.(*sql.DB)); err != nil {
 			log.Printf("Warning: Failed to cleanup test tables: %v", err)
 		}
 		testDB.Close()
@@ -158,32 +158,231 @@ func TestInsert(t *testing.T) {
 		require.Equal(t, kv.Key, retrievedKV.Key)
 		require.Equal(t, kv.Value, retrievedKV.Value)
 	})
+}
 
-	t.Run("ignores zero value fields during insert", func(t *testing.T) {
-		kv := &KeyValue{
-			ID:    0,
-			Key:   "test.zero.values",
-			Value: "",
-		}
+func TestTransaction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
 
-		err := testDB.Insert(kv)
+	t.Run("successful transaction commits changes", func(t *testing.T) {
+		var insertedKV *KeyValue
+
+		err := testDB.Transaction(func(tx *DB) error {
+			kv := &KeyValue{
+				Key:   "test.transaction.commit",
+				Value: "transaction commit test",
+			}
+
+			err := tx.Insert(kv)
+			if err != nil {
+				return err
+			}
+
+			insertedKV = kv
+			return nil
+		})
+
 		require.NoError(t, err)
+		require.NotNil(t, insertedKV)
+		require.NotEqual(t, 0, insertedKV.ID)
 
-		require.NotEqual(t, 0, kv.ID, "Zero ID should be ignored and auto-generated")
-		require.Greater(t, kv.ID, 0, "Auto-generated ID should be positive")
-
-		// Use sql.NullString to handle potential NULL values
-		var retrievedID int
-		var retrievedKey string
-		var retrievedValue sql.NullString
-		row := testDB.db.QueryRow("SELECT id, `key`, value FROM key_values WHERE id = ?", kv.ID)
-		err = row.Scan(&retrievedID, &retrievedKey, &retrievedValue)
+		// Verify the data was committed to the database
+		var retrievedKV KeyValue
+		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+			"key": "test.transaction.commit",
+		})
 		require.NoError(t, err)
+		require.Equal(t, insertedKV.ID, retrievedKV.ID)
+		require.Equal(t, "test.transaction.commit", retrievedKV.Key)
+		require.Equal(t, "transaction commit test", retrievedKV.Value)
+	})
 
-		require.Equal(t, kv.ID, retrievedID)
-		require.Equal(t, "test.zero.values", retrievedKey)
+	t.Run("failed transaction rolls back changes", func(t *testing.T) {
+		var insertedKV *KeyValue
 
-		require.False(t, retrievedValue.Valid, "Value should be NULL in database")
+		err := testDB.Transaction(func(tx *DB) error {
+			kv := &KeyValue{
+				Key:   "test.transaction.rollback",
+				Value: "transaction rollback test",
+			}
+
+			err := tx.Insert(kv)
+			if err != nil {
+				return err
+			}
+
+			insertedKV = kv
+
+			// Force an error to trigger rollback
+			return fmt.Errorf("intentional error to trigger rollback")
+		})
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "intentional error to trigger rollback")
+		require.NotNil(t, insertedKV)
+		require.NotEqual(t, 0, insertedKV.ID) // ID was set during transaction
+
+		// Verify the data was NOT committed to the database (rolled back)
+		var retrievedKV KeyValue
+		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+			"key": "test.transaction.rollback",
+		})
+		require.Error(t, err)
+		require.Equal(t, sql.ErrNoRows, err)
+	})
+
+	t.Run("multiple operations in transaction", func(t *testing.T) {
+		var kv1, kv2 *KeyValue
+
+		err := testDB.Transaction(func(tx *DB) error {
+			// Insert first record
+			kv1 = &KeyValue{
+				Key:   "test.transaction.multi.1",
+				Value: "first record",
+			}
+			err := tx.Insert(kv1)
+			if err != nil {
+				return err
+			}
+
+			// Insert second record
+			kv2 = &KeyValue{
+				Key:   "test.transaction.multi.2",
+				Value: "second record",
+			}
+			err = tx.Insert(kv2)
+			if err != nil {
+				return err
+			}
+
+			// Verify we can select within the transaction
+			var kvs []KeyValue
+			err = tx.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+				"pattern": "test.transaction.multi.%",
+			})
+			if err != nil {
+				return err
+			}
+
+			if len(kvs) != 2 {
+				return fmt.Errorf("expected 2 records in transaction, got %d", len(kvs))
+			}
+
+			return nil
+		})
+
+		require.NoError(t, err)
+		require.NotNil(t, kv1)
+		require.NotNil(t, kv2)
+		require.NotEqual(t, 0, kv1.ID)
+		require.NotEqual(t, 0, kv2.ID)
+		require.NotEqual(t, kv1.ID, kv2.ID)
+
+		// Verify both records were committed
+		var kvs []KeyValue
+		err = testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+			"pattern": "test.transaction.multi.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, kvs, 2)
+		require.Equal(t, "test.transaction.multi.1", kvs[0].Key)
+		require.Equal(t, "test.transaction.multi.2", kvs[1].Key)
+	})
+
+	t.Run("transaction rollback with multiple operations", func(t *testing.T) {
+		var kv1, kv2 *KeyValue
+
+		err := testDB.Transaction(func(tx *DB) error {
+			// Insert first record
+			kv1 = &KeyValue{
+				Key:   "test.transaction.rollback.multi.1",
+				Value: "first record",
+			}
+			err := tx.Insert(kv1)
+			if err != nil {
+				return err
+			}
+
+			// Insert second record
+			kv2 = &KeyValue{
+				Key:   "test.transaction.rollback.multi.2",
+				Value: "second record",
+			}
+			err = tx.Insert(kv2)
+			if err != nil {
+				return err
+			}
+
+			// Force rollback after both inserts
+			return fmt.Errorf("rollback both operations")
+		})
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "rollback both operations")
+
+		// Verify neither record was committed
+		var kvs []KeyValue
+		err = testDB.Select(&kvs, "WHERE `key` LIKE $pattern", map[string]any{
+			"pattern": "test.transaction.rollback.multi.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, kvs, 0, "No records should be committed after rollback")
+	})
+
+	t.Run("transaction with panic triggers rollback", func(t *testing.T) {
+		var insertedKV *KeyValue
+
+		// Capture the panic and verify rollback occurred
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					require.Equal(t, "panic in transaction", r)
+				}
+			}()
+
+			testDB.Transaction(func(tx *DB) error {
+				kv := &KeyValue{
+					Key:   "test.transaction.panic",
+					Value: "panic test",
+				}
+
+				err := tx.Insert(kv)
+				if err != nil {
+					return err
+				}
+
+				insertedKV = kv
+
+				// Trigger panic
+				panic("panic in transaction")
+			})
+
+			// This should not be reached due to panic
+			t.Fatal("Expected panic but transaction completed normally")
+		}()
+
+		require.NotNil(t, insertedKV)
+
+		// Verify the data was NOT committed due to panic rollback
+		var retrievedKV KeyValue
+		err := testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+			"key": "test.transaction.panic",
+		})
+		require.Error(t, err)
+		require.Equal(t, sql.ErrNoRows, err)
+	})
+
+	t.Run("nested transactions not supported", func(t *testing.T) {
+		err := testDB.Transaction(func(tx *DB) error {
+			// Try to start another transaction within an existing one
+			return tx.Transaction(func(nestedTx *DB) error {
+				return nil
+			})
+		})
+
+		// This should fail since we're trying to begin a transaction on a *sql.Tx
+		require.Error(t, err)
 	})
 }
 
