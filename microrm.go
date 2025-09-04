@@ -183,10 +183,10 @@ func (d *DB) Transaction(fn func(tx *DB) error) error {
 	}
 	defer func() {
 		if p := recover(); p != nil {
-			err = tx.Rollback()
+			_ = tx.Rollback()
 			panic(p)
 		} else if err != nil {
-			err = tx.Rollback()
+			_ = tx.Rollback()
 		} else {
 			err = tx.Commit()
 		}
