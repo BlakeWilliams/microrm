@@ -88,6 +88,78 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 	return nil
 }
 
+// Insert inserts a new record into the database based on the provided struct.
+func (d DB) Insert(dest any) error {
+	destValue := reflect.ValueOf(dest)
+	destType := reflect.TypeOf(dest)
+	if destType.Kind() != reflect.Pointer {
+		return fmt.Errorf("destination must be a pointer to a struct, got %s", destType.Kind())
+	}
+
+	destRootType := destType.Elem()
+
+	if destRootType.Kind() != reflect.Struct {
+		return fmt.Errorf("destination must be a struct, got %s", destType.Kind())
+	}
+
+	var insertColumns strings.Builder
+	insertColumnData := make([]any, 0, destRootType.NumField())
+	var insertValuePlaceholders strings.Builder
+
+	for i := 0; i < destRootType.NumField(); i++ {
+		field := destRootType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		// Skip zero-value fields to allow for auto-increment and default values
+		if destValue.Elem().FieldByName(field.Name).IsZero() {
+			continue
+		}
+
+		columnName := field.Tag.Get("db")
+		if columnName == "" {
+			columnName = snake_case(field.Name)
+		}
+
+		if insertColumns.Len() > 0 {
+			insertColumns.WriteString(", ")
+			insertValuePlaceholders.WriteString(", ")
+		}
+		insertColumns.WriteString("`" + columnName + "`")
+		insertColumnData = append(insertColumnData, reflect.ValueOf(dest).Elem().FieldByName(field.Name).Interface())
+		insertValuePlaceholders.WriteString("?")
+	}
+
+	tableName := destRootType.Name()
+	if rename, ok := d.nameMap[tableName]; ok {
+		tableName = rename
+	} else {
+		tableName = snake_case(destType.Name())
+	}
+
+	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tableName, insertColumns.String(), insertValuePlaceholders.String())
+	fmt.Println("INSERT SQL:", insertSQL)
+
+	res, err := d.db.Exec(insertSQL, insertColumnData...)
+	if err != nil {
+		return fmt.Errorf("failed to execute insert: %w", err)
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to retrieve last insert ID: %w", err)
+	}
+
+	// Attempt to set the ID field if it exists
+	idField := reflect.ValueOf(dest).Elem().FieldByName("ID")
+	if idField.IsValid() && idField.CanSet() && (idField.Kind() == reflect.Int || idField.Kind() == reflect.Int64) {
+		idField.SetInt(id)
+	}
+
+	return nil
+}
+
 func scanStruct(fields []string, rows *sql.Rows, dest reflect.Value) error {
 	scanArgs := make([]any, 0, len(fields))
 

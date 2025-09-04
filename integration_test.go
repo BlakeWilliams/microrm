@@ -56,9 +56,8 @@ func TestSelect(t *testing.T) {
 
 		require.NoError(t, err)
 
-		// This should fail until Select is implemented
 		expectedKV := KeyValue{
-			ID:    3, // Based on insertion order in insertTestData
+			ID:    3,
 			Key:   "config.app.name",
 			Value: "MicroORM",
 		}
@@ -73,7 +72,6 @@ func TestSelect(t *testing.T) {
 
 		require.NoError(t, err)
 
-		// This should fail until Select is implemented
 		expectedKVs := []KeyValue{
 			{ID: 1, Key: "config.database.host", Value: "localhost"},
 			{ID: 2, Key: "config.database.port", Value: "3306"},
@@ -106,6 +104,86 @@ func TestSelect(t *testing.T) {
 
 		require.Error(t, err, sql.ErrNoRows)
 		require.Equal(t, KeyValue{}, kv)
+	})
+}
+
+func TestInsert(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	t.Run("populates ID of inserted structs", func(t *testing.T) {
+		kv := &KeyValue{
+			Key:   "test.insert.key",
+			Value: "test insert value",
+		}
+
+		require.Equal(t, 0, kv.ID)
+
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+
+		require.NotEqual(t, 0, kv.ID, "ID should be populated after insert")
+		require.Greater(t, kv.ID, 0, "ID should be positive")
+	})
+
+	t.Run("inserts records with pre-populated IDs", func(t *testing.T) {
+		kv := &KeyValue{
+			ID:    999,
+			Key:   "test.predefined.id",
+			Value: "predefined ID value",
+		}
+
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+
+		require.Equal(t, 999, kv.ID, "Pre-existing ID should be preserved")
+	})
+
+	t.Run("can insert data", func(t *testing.T) {
+		kv := &KeyValue{
+			Key:   "test.database.verification",
+			Value: "thetruthisoutthere",
+		}
+
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+
+		var retrievedKV KeyValue
+		row := testDB.db.QueryRow("SELECT id, `key`, value FROM key_values WHERE id = ?", kv.ID)
+		err = row.Scan(&retrievedKV.ID, &retrievedKV.Key, &retrievedKV.Value)
+		require.NoError(t, err)
+
+		require.Equal(t, kv.ID, retrievedKV.ID)
+		require.Equal(t, kv.Key, retrievedKV.Key)
+		require.Equal(t, kv.Value, retrievedKV.Value)
+	})
+
+	t.Run("ignores zero value fields during insert", func(t *testing.T) {
+		kv := &KeyValue{
+			ID:    0,
+			Key:   "test.zero.values",
+			Value: "",
+		}
+
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+
+		require.NotEqual(t, 0, kv.ID, "Zero ID should be ignored and auto-generated")
+		require.Greater(t, kv.ID, 0, "Auto-generated ID should be positive")
+
+		// Use sql.NullString to handle potential NULL values
+		var retrievedID int
+		var retrievedKey string
+		var retrievedValue sql.NullString
+		row := testDB.db.QueryRow("SELECT id, `key`, value FROM key_values WHERE id = ?", kv.ID)
+		err = row.Scan(&retrievedID, &retrievedKey, &retrievedValue)
+		require.NoError(t, err)
+
+		require.Equal(t, kv.ID, retrievedID)
+		require.Equal(t, "test.zero.values", retrievedKey)
+
+		require.False(t, retrievedValue.Valid, "Value should be NULL in database")
 	})
 }
 
@@ -151,7 +229,7 @@ func setupTestTables(db *sql.DB) error {
 		CREATE TABLE key_values (
 			id INT AUTO_INCREMENT PRIMARY KEY,
 			` + "`key`" + ` VARCHAR(255) NOT NULL UNIQUE,
-			value TEXT NOT NULL
+			value TEXT NULL
 		)
 	`
 
