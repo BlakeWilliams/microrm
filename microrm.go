@@ -203,6 +203,58 @@ func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, err
 	return n, nil
 }
 
+func (d *DB) DeleteRecord(dest any) (int64, error) {
+	destType, err := identifyRootType(dest)
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() == reflect.Pointer {
+		destValue = destValue.Elem()
+	}
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete data: %w", err)
+	}
+
+	if destType.Kind() == reflect.Pointer && destType.Elem().Kind() != reflect.Struct {
+		return 0, fmt.Errorf("destination must be a struct, got pointer to %s", destType.Elem().Kind())
+	} else if destType.Kind() != reflect.Struct {
+		return 0, fmt.Errorf("destination must be a struct, got %s", destType.Kind())
+	}
+
+	tableName := snake_case(destType.Name())
+	if rename, ok := d.nameMap[destType.Name()]; ok {
+		tableName = rename
+	}
+
+	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName)
+	idField, ok := d.findIDField(destValue)
+	if !ok {
+		return 0, fmt.Errorf("struct does not have an ID field")
+	}
+
+	res, err := d.db.Exec(deleteSQL, idField.Interface())
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute delete: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to retrieve rows affected: %w", err)
+	}
+
+	return n, nil
+}
+
+func (d *DB) findIDField(destValue reflect.Value) (reflect.Value, bool) {
+	destValue.Type()
+	for i := 0; i < destValue.NumField(); i++ {
+		field := destValue.Type().Field(i)
+		if field.Name == "ID" || field.Tag.Get("db") == "id" {
+			return destValue.Field(i), true
+		}
+	}
+	return reflect.Value{}, false
+}
+
 // Transaction executes the provided function within a database transaction. If
 // the function returns an error, the transaction is rolled back, otherwise it
 // is committed.

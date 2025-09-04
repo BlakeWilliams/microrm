@@ -85,7 +85,6 @@ func TestSelect(t *testing.T) {
 
 		require.NoError(t, err)
 
-		// This should fail until Select is implemented
 		expectedKVs := []KeyValue{
 			{ID: 3, Key: "config.app.name", Value: "MicroORM"},
 			{ID: 4, Key: "config.app.version", Value: "1.0.0"},
@@ -482,7 +481,6 @@ func TestDelete(t *testing.T) {
 	})
 
 	t.Run("delete with complex WHERE clause", func(t *testing.T) {
-		// Insert test records
 		testRecords := []KeyValue{
 			{Key: "test.delete.complex.keep", Value: "keep this"},
 			{Key: "test.delete.complex.remove1", Value: "remove this"},
@@ -510,6 +508,89 @@ func TestDelete(t *testing.T) {
 		require.Len(t, remainingKVs, 2)
 		require.Equal(t, "test.delete.complex.keep", remainingKVs[0].Key)
 		require.Equal(t, "test.delete.complex.keep2", remainingKVs[1].Key)
+	})
+}
+
+func TestDeleteRecord(t *testing.T) {
+	t.Run("delete record by ID field", func(t *testing.T) {
+		kv := &KeyValue{
+			Key:   "test.deleterecord.basic",
+			Value: "basic delete test",
+		}
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+		require.NotEqual(t, 0, kv.ID)
+		insertedID := kv.ID
+
+		var retrievedKV KeyValue
+		err = testDB.Select(&retrievedKV, "WHERE id = $id", map[string]any{
+			"id": insertedID,
+		})
+		require.NoError(t, err)
+		require.Equal(t, insertedID, retrievedKV.ID)
+
+		rowsAffected, err := testDB.DeleteRecord(kv)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+
+		var deletedKV KeyValue
+		err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+			"id": insertedID,
+		})
+		require.Error(t, err)
+		require.Equal(t, sql.ErrNoRows, err)
+	})
+
+	t.Run("delete record without ID field should error", func(t *testing.T) {
+		type NoIDStruct struct {
+			Key   string `db:"key"`
+			Value string `db:"value"`
+		}
+
+		noID := &NoIDStruct{
+			Key:   "test.no.id",
+			Value: "no ID field",
+		}
+
+		rowsAffected, err := testDB.DeleteRecord(noID)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "struct does not have an ID field")
+		require.Equal(t, int64(0), rowsAffected)
+	})
+
+	t.Run("delete record with custom db tag for ID", func(t *testing.T) {
+		type CustomIDStruct struct {
+			CustomID int    `db:"id"`
+			Key      string `db:"key"`
+			Value    string `db:"value"`
+		}
+
+		testDB.MapNameToTable("CustomIDStruct", "key_values")
+
+		kv := &KeyValue{
+			Key:   "test.deleterecord.customid",
+			Value: "custom ID test",
+		}
+		err := testDB.Insert(kv)
+		require.NoError(t, err)
+		require.NotEqual(t, 0, kv.ID)
+
+		customKV := &CustomIDStruct{
+			CustomID: kv.ID,
+			Key:      "test.deleterecord.customid",
+			Value:    "custom ID test",
+		}
+
+		rowsAffected, err := testDB.DeleteRecord(customKV)
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+
+		var deletedKV KeyValue
+		err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+			"id": kv.ID,
+		})
+		require.Error(t, err)
+		require.Equal(t, sql.ErrNoRows, err)
 	})
 }
 

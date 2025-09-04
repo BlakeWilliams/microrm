@@ -39,7 +39,8 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [x] Support for `select`ing data via `DB.Select`.
 - [x] Support for `insert`ing data via `DB.Insert`.
 - [ ] Support for `update`ing data via `DB.Update`.
-- [ ] Support for `delete`ing data via `DB.Delete`.
+- [x] Support for `delete`ing data via `DB.Delete`.
+- [x] Support for `delete`ing specific structs via `DB.DeleteRecord`.
 - [x] Support for transactions via `DB.Transaction`
 - [ ] Updates `created_at` and `updated_at` fields automatically.
 
