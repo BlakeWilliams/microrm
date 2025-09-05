@@ -20,7 +20,8 @@ type queryable interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
 
-// DB represents a database connection and provides methods for executing queries and mapping results to structs.
+// DB represents a database connection and provides methods for executing
+// queries and mapping results to structs.
 type DB struct {
 	db             queryable
 	nameMap        map[string]string
@@ -305,6 +306,24 @@ func (d *DB) DeleteRecord(dest any) (int64, error) {
 	}
 
 	return n, nil
+}
+
+// Query executes a query with named parameters and returns the resulting rows.
+func (d *DB) Query(sql string, args map[string]any) (*sql.Rows, error) {
+	sql, argSlice, err := d.replaceNames(sql, args)
+	if err != nil {
+		return nil, err
+	}
+	return d.db.Query(sql, argSlice...)
+}
+
+// Exec executes a query with named parameters and without returning rows.
+func (d *DB) Exec(sql string, args map[string]any) (sql.Result, error) {
+	sql, argSlice, err := d.replaceNames(sql, args)
+	if err != nil {
+		return nil, err
+	}
+	return d.db.Exec(sql, argSlice...)
 }
 
 func (d *DB) findIDField(destValue reflect.Value) (reflect.Value, bool) {
