@@ -4,9 +4,9 @@
 
 ## Example usage
 
-While `microrm` is designed as a minimal ORM, its primary goal is to reduce boilerplate and help developers fall into the "put of success". For example, all queries run through `microrm` use named parameters to avoid easy-to-make mistakes with positional parameters.
+While `microrm` is designed as a minimal ORM, its primary goal is to reduce boilerplate and help developers fall into the "pit of success". For example, all queries run through `microrm` use named parameters to avoid easy-to-make mistakes with positional parameters.
 
-e.g. `SELECT * FROM users WHERE id = $ID` instead of `SELECT * FROM users WHERE id = ?`.
+e.g. `WHERE id = $ID` instead of `WHERE id = ?` + positional args.
 
 ```go
 conn := sql.Open("sqlite3", ":memory:")
