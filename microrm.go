@@ -22,9 +22,10 @@ type queryable interface {
 
 // DB represents a database connection and provides methods for executing queries and mapping results to structs.
 type DB struct {
-	db      queryable
-	nameMap map[string]string
-	mu      sync.Mutex
+	db             queryable
+	nameMap        map[string]string
+	modelTypeCache sync.Map
+	mu             sync.Mutex
 }
 
 // New initializes a new DB instance with the provided sql.DB connection.
@@ -38,6 +39,25 @@ func (d *DB) MapNameToTable(structName, tableName string) {
 	d.nameMap[structName] = tableName
 }
 
+// newModelType creates a new modelType for the given destination
+func (d *DB) newModelType(dest any) (*modelType, error) {
+	key := reflect.TypeOf(dest)
+
+	if cached, ok := d.modelTypeCache.Load(key); ok {
+		return cached.(*modelType), nil
+	}
+
+	newModel, err := newModelType(dest, d.nameMap)
+
+	if err != nil {
+		return nil, err
+	}
+
+	d.modelTypeCache.Store(key, newModel)
+
+	return newModel, nil
+}
+
 // Close closes the underlying database connection.
 func (d *DB) Close() error {
 	if db, ok := d.db.(*sql.DB); ok {
@@ -48,7 +68,7 @@ func (d *DB) Close() error {
 
 // Select executes a query and scans the result into the provided destination struct or slice of structs.
 func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
-	model, err := newModelType(dest, d.nameMap)
+	model, err := d.newModelType(dest)
 	if err != nil {
 		return fmt.Errorf("failed to select data: %w", err)
 	}
@@ -76,12 +96,12 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 		sliceTarget := reflect.ValueOf(dest).Elem()
 
 		for rows.Next() {
-			row := model.NewElem()
+			row := reflect.New(model.elemType).Elem()
 			if err := scanStruct(structFields, rows, row); err != nil {
 				return fmt.Errorf("failed to scan row: %w", err)
 			}
 
-			if model.IsSliceOfPointers() {
+			if model.isSliceOfPointers {
 				row = row.Addr()
 			}
 
@@ -90,7 +110,7 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 
 		reflect.ValueOf(dest).Elem().Set(sliceTarget)
 	} else {
-		row := model.SelfElem()
+		row := concreteValue(dest)
 
 		// rows.Next() must be called to advance to the first row and check if
 		// we actually have results, otherwise return sql.ErrNoRows
@@ -107,19 +127,19 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 
 // Insert inserts a new record into the database based on the provided struct.
 func (d *DB) Insert(dest any) error {
-	model, err := newModelType(dest, d.nameMap)
+	model, err := d.newModelType(dest)
 	if err != nil {
 		return fmt.Errorf("failed to insert data: %w", err)
 	}
-	if !model.IsStructPointer() {
+	if !model.isStructPointer {
 		return fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
 	}
 
 	var insertColumns strings.Builder
-	insertColumnData := make([]any, 0, model.NumField())
+	insertColumnData := make([]any, 0, model.numField)
 	var insertValuePlaceholders strings.Builder
 
-	for i := 0; i < model.NumField(); i++ {
+	for i := 0; i < model.numField; i++ {
 		field := model.FieldType(i)
 		if !field.IsExported() {
 			continue
@@ -152,7 +172,7 @@ func (d *DB) Insert(dest any) error {
 	}
 
 	// Attempt to set the ID field if it exists
-	idField, ok := d.findIDField(model.SelfElem())
+	idField, ok := d.findIDField(concreteValue(dest))
 	if ok && idField.IsValid() && idField.CanSet() {
 		switch idField.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -173,7 +193,7 @@ func (d *DB) Insert(dest any) error {
 //
 // It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, error) {
-	model, err := newModelType(dest, d.nameMap)
+	model, err := d.newModelType(dest)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
@@ -205,21 +225,21 @@ func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, err
 //
 // It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) DeleteRecords(dest any) (int64, error) {
-	model, err := newModelType(dest, d.nameMap)
+	model, err := d.newModelType(dest)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
 
-	if !model.IsValidSlice() {
+	if !model.isValidSlice {
 		return 0, fmt.Errorf("destination must be a slice, got %s", model.baseType.Kind())
 	}
 
-	destValue := model.SelfElem()
+	destValue := concreteValue(dest)
 
 	n := int64(0)
 	err = d.Transaction(func(tx *DB) error {
 		// For []*T, items are already pointers so we can pass them directly
-		if model.IsSliceOfPointers() {
+		if model.isSliceOfPointers {
 			for i := 0; i < destValue.Len(); i++ {
 				item := destValue.Index(i).Interface()
 				nn, err := tx.DeleteRecord(item)
@@ -258,18 +278,18 @@ func (d *DB) DeleteRecords(dest any) (int64, error) {
 //
 // It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) DeleteRecord(dest any) (int64, error) {
-	model, err := newModelType(dest, d.nameMap)
+	model, err := d.newModelType(dest)
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
 
-	if !model.IsStructPointer() {
+	if !model.isStructPointer {
 		return 0, fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
 	}
 
 	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", model.tableName)
-	idField, ok := d.findIDField(model.SelfElem())
+	idField, ok := d.findIDField(concreteValue(dest))
 	if !ok {
 		return 0, fmt.Errorf("struct does not have an ID field")
 	}
@@ -328,6 +348,14 @@ func (d *DB) Transaction(fn func(tx *DB) error) error {
 
 	err = fn(txDB)
 	return err
+}
+
+func concreteValue(dest any) reflect.Value {
+	v := reflect.ValueOf(dest)
+	if v.Kind() == reflect.Pointer {
+		return v.Elem()
+	}
+	return v
 }
 
 func scanStruct(fields []string, rows *sql.Rows, dest reflect.Value) error {
@@ -398,9 +426,9 @@ func (d *DB) replaceNames(rawSql string, args map[string]any) (string, []any, er
 // generateSelect creates a SELECT SQL statement based on the struct type, mapping struct fields to database columns.
 // it returns the SQL string and a slice of column names to be used in scanning.
 func (d *DB) generateSelect(model *modelType) (string, []string) {
-	columns := make([]string, 0, model.NumField())
+	columns := make([]string, 0, model.numField)
 	var columnStr strings.Builder
-	for i := 0; i < model.NumField(); i++ {
+	for i := 0; i < model.numField; i++ {
 		field := model.FieldType(i)
 		if !field.IsExported() {
 			continue
