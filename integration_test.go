@@ -1,6 +1,7 @@
 package microrm
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -48,9 +49,11 @@ func TestMain(m *testing.M) {
 }
 
 func TestSelect(t *testing.T) {
+	ctx := context.Background()
+	
 	t.Run("select single key-value", func(t *testing.T) {
 		var kv KeyValue
-		err := testDB.Select(&kv, "WHERE `key` = $key", map[string]any{
+		err := testDB.Select(ctx, &kv, "WHERE `key` = $key", map[string]any{
 			"key": "config.app.name",
 		})
 
@@ -66,7 +69,7 @@ func TestSelect(t *testing.T) {
 
 	t.Run("select multiple key-values", func(t *testing.T) {
 		var kvs []KeyValue
-		err := testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+		err := testDB.Select(ctx, &kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 			"pattern": "config.database.%",
 		})
 
@@ -81,7 +84,7 @@ func TestSelect(t *testing.T) {
 
 	t.Run("select multiple key-values into slice of pointers", func(t *testing.T) {
 		var kvs []*KeyValue
-		err := testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+		err := testDB.Select(ctx, &kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 			"pattern": "config.database.%",
 		})
 
@@ -101,7 +104,7 @@ func TestSelect(t *testing.T) {
 
 	t.Run("select all key-values", func(t *testing.T) {
 		var kvs []KeyValue
-		err := testDB.Select(&kvs, "ORDER BY `key`", map[string]any{})
+		err := testDB.Select(ctx, &kvs, "ORDER BY `key`", map[string]any{})
 
 		require.NoError(t, err)
 
@@ -117,7 +120,7 @@ func TestSelect(t *testing.T) {
 
 	t.Run("select non-existent key", func(t *testing.T) {
 		var kv KeyValue
-		err := testDB.Select(&kv, "WHERE `key` = $key", map[string]any{
+		err := testDB.Select(ctx, &kv, "WHERE `key` = $key", map[string]any{
 			"key": "non.existent.key",
 		})
 
@@ -127,6 +130,8 @@ func TestSelect(t *testing.T) {
 }
 
 func TestInsert(t *testing.T) {
+	ctx := context.Background()
+	
 	t.Run("populates ID of inserted structs", func(t *testing.T) {
 		kv := &KeyValue{
 			Key:   "test.insert.key",
@@ -135,7 +140,7 @@ func TestInsert(t *testing.T) {
 
 		require.Equal(t, 0, kv.ID)
 
-		err := testDB.Insert(kv)
+		err := testDB.Insert(ctx, kv)
 		require.NoError(t, err)
 
 		require.NotEqual(t, 0, kv.ID, "ID should be populated after insert")
@@ -149,7 +154,7 @@ func TestInsert(t *testing.T) {
 			Value: "predefined ID value",
 		}
 
-		err := testDB.Insert(kv)
+		err := testDB.Insert(ctx, kv)
 		require.NoError(t, err)
 
 		require.Equal(t, 999, kv.ID, "Pre-existing ID should be preserved")
@@ -161,7 +166,7 @@ func TestInsert(t *testing.T) {
 			Value: "thetruthisoutthere",
 		}
 
-		err := testDB.Insert(kv)
+		err := testDB.Insert(ctx, kv)
 		require.NoError(t, err)
 
 		var retrievedKV KeyValue
@@ -176,6 +181,8 @@ func TestInsert(t *testing.T) {
 }
 
 func TestTransaction(t *testing.T) {
+	ctx := context.Background()
+	
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -183,13 +190,13 @@ func TestTransaction(t *testing.T) {
 	t.Run("successful transaction commits changes", func(t *testing.T) {
 		var insertedKV *KeyValue
 
-		err := testDB.Transaction(func(tx *DB) error {
+		err := testDB.Transaction(ctx, func(tx *DB) error {
 			kv := &KeyValue{
 				Key:   "test.transaction.commit",
 				Value: "transaction commit test",
 			}
 
-			err := tx.Insert(kv)
+			err := tx.Insert(ctx, kv)
 			if err != nil {
 				return err
 			}
@@ -203,7 +210,7 @@ func TestTransaction(t *testing.T) {
 		require.NotEqual(t, 0, insertedKV.ID)
 
 		var retrievedKV KeyValue
-		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+		err = testDB.Select(ctx, &retrievedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.transaction.commit",
 		})
 		require.NoError(t, err)
@@ -215,13 +222,13 @@ func TestTransaction(t *testing.T) {
 	t.Run("failed transaction rolls back changes", func(t *testing.T) {
 		var insertedKV *KeyValue
 
-		err := testDB.Transaction(func(tx *DB) error {
+		err := testDB.Transaction(ctx, func(tx *DB) error {
 			kv := &KeyValue{
 				Key:   "test.transaction.rollback",
 				Value: "transaction rollback test",
 			}
 
-			err := tx.Insert(kv)
+			err := tx.Insert(ctx, kv)
 			if err != nil {
 				return err
 			}
@@ -237,7 +244,7 @@ func TestTransaction(t *testing.T) {
 		require.NotEqual(t, 0, insertedKV.ID)
 
 		var retrievedKV KeyValue
-		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+		err = testDB.Select(ctx, &retrievedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.transaction.rollback",
 		})
 		require.Error(t, err)
@@ -247,12 +254,12 @@ func TestTransaction(t *testing.T) {
 	t.Run("multiple operations in transaction", func(t *testing.T) {
 		var kv1, kv2 *KeyValue
 
-		err := testDB.Transaction(func(tx *DB) error {
+		err := testDB.Transaction(ctx, func(tx *DB) error {
 			kv1 = &KeyValue{
 				Key:   "test.transaction.multi.1",
 				Value: "first record",
 			}
-			err := tx.Insert(kv1)
+			err := tx.Insert(ctx, kv1)
 			if err != nil {
 				return err
 			}
@@ -261,13 +268,13 @@ func TestTransaction(t *testing.T) {
 				Key:   "test.transaction.multi.2",
 				Value: "second record",
 			}
-			err = tx.Insert(kv2)
+			err = tx.Insert(ctx, kv2)
 			if err != nil {
 				return err
 			}
 
 			var kvs []KeyValue
-			err = tx.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+			err = tx.Select(ctx, &kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 				"pattern": "test.transaction.multi.%",
 			})
 			if err != nil {
@@ -289,7 +296,7 @@ func TestTransaction(t *testing.T) {
 		require.NotEqual(t, kv1.ID, kv2.ID)
 
 		var kvs []KeyValue
-		err = testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+		err = testDB.Select(ctx, &kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 			"pattern": "test.transaction.multi.%",
 		})
 		require.NoError(t, err)
@@ -301,12 +308,12 @@ func TestTransaction(t *testing.T) {
 	t.Run("transaction rollback with multiple operations", func(t *testing.T) {
 		var kv1, kv2 *KeyValue
 
-		err := testDB.Transaction(func(tx *DB) error {
+		err := testDB.Transaction(ctx, func(tx *DB) error {
 			kv1 = &KeyValue{
 				Key:   "test.transaction.rollback.multi.1",
 				Value: "first record",
 			}
-			err := tx.Insert(kv1)
+			err := tx.Insert(ctx, kv1)
 			if err != nil {
 				return err
 			}
@@ -315,7 +322,7 @@ func TestTransaction(t *testing.T) {
 				Key:   "test.transaction.rollback.multi.2",
 				Value: "second record",
 			}
-			err = tx.Insert(kv2)
+			err = tx.Insert(ctx, kv2)
 			if err != nil {
 				return err
 			}
@@ -327,7 +334,7 @@ func TestTransaction(t *testing.T) {
 		require.Contains(t, err.Error(), "rollback both operations")
 
 		var kvs []KeyValue
-		err = testDB.Select(&kvs, "WHERE `key` LIKE $pattern", map[string]any{
+		err = testDB.Select(ctx, &kvs, "WHERE `key` LIKE $pattern", map[string]any{
 			"pattern": "test.transaction.rollback.multi.%",
 		})
 		require.NoError(t, err)
@@ -344,13 +351,13 @@ func TestTransaction(t *testing.T) {
 				}
 			}()
 
-			testDB.Transaction(func(tx *DB) error {
+			_ = testDB.Transaction(ctx, func(tx *DB) error {
 				kv := &KeyValue{
 					Key:   "test.transaction.panic",
 					Value: "panic test",
 				}
 
-				err := tx.Insert(kv)
+				err := tx.Insert(ctx, kv)
 				if err != nil {
 					return err
 				}
@@ -366,7 +373,7 @@ func TestTransaction(t *testing.T) {
 		require.NotNil(t, insertedKV)
 
 		var retrievedKV KeyValue
-		err := testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+		err := testDB.Select(ctx, &retrievedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.transaction.panic",
 		})
 		require.Error(t, err)
@@ -374,8 +381,8 @@ func TestTransaction(t *testing.T) {
 	})
 
 	t.Run("nested transactions not supported", func(t *testing.T) {
-		err := testDB.Transaction(func(tx *DB) error {
-			return tx.Transaction(func(nestedTx *DB) error {
+		err := testDB.Transaction(ctx, func(tx *DB) error {
+			return tx.Transaction(ctx, func(nestedTx *DB) error {
 				return nil
 			})
 		})
@@ -385,29 +392,31 @@ func TestTransaction(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
+	ctx := context.Background()
+	
 	t.Run("delete single record by key", func(t *testing.T) {
 		kv := &KeyValue{
 			Key:   "test.delete.single",
 			Value: "to be deleted",
 		}
-		err := testDB.Insert(kv)
+		err := testDB.Insert(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 
 		var retrievedKV KeyValue
-		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
+		err = testDB.Select(ctx, &retrievedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.delete.single",
 		})
 		require.NoError(t, err)
 
-		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` = $key", map[string]any{
+		rowsAffected, err := testDB.Delete(ctx, &KeyValue{}, "WHERE `key` = $key", map[string]any{
 			"key": "test.delete.single",
 		})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rowsAffected)
 
 		var deletedKV KeyValue
-		err = testDB.Select(&deletedKV, "WHERE `key` = $key", map[string]any{
+		err = testDB.Select(ctx, &deletedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.delete.single",
 		})
 		require.Error(t, err)
@@ -422,25 +431,25 @@ func TestDelete(t *testing.T) {
 		}
 
 		for i := range testRecords {
-			err := testDB.Insert(&testRecords[i])
+			err := testDB.Insert(ctx, &testRecords[i])
 			require.NoError(t, err)
 		}
 
 		var kvs []KeyValue
-		err := testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+		err := testDB.Select(ctx, &kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 			"pattern": "test.delete.multi.%",
 		})
 		require.NoError(t, err)
 		require.Len(t, kvs, 3)
 
-		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` LIKE $pattern", map[string]any{
+		rowsAffected, err := testDB.Delete(ctx, &KeyValue{}, "WHERE `key` LIKE $pattern", map[string]any{
 			"pattern": "test.delete.multi.%",
 		})
 		require.NoError(t, err)
 		require.Equal(t, int64(3), rowsAffected)
 
 		var deletedKVs []KeyValue
-		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+		err = testDB.Select(ctx, &deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
 			"pattern": "test.delete.multi.%",
 		})
 		require.NoError(t, err)
@@ -452,19 +461,19 @@ func TestDelete(t *testing.T) {
 			Key:   "test.delete.by.id",
 			Value: "delete by ID test",
 		}
-		err := testDB.Insert(kv)
+		err := testDB.Insert(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 		insertedID := kv.ID
 
-		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE id = $id", map[string]any{
+		rowsAffected, err := testDB.Delete(ctx, &KeyValue{}, "WHERE id = $id", map[string]any{
 			"id": insertedID,
 		})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rowsAffected)
 
 		var deletedKV KeyValue
-		err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+		err = testDB.Select(ctx, &deletedKV, "WHERE id = $id", map[string]any{
 			"id": insertedID,
 		})
 		require.Error(t, err)
@@ -472,7 +481,7 @@ func TestDelete(t *testing.T) {
 	})
 
 	t.Run("delete non-existent record returns zero rows affected", func(t *testing.T) {
-		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` = $key", map[string]any{
+		rowsAffected, err := testDB.Delete(ctx, &KeyValue{}, "WHERE `key` = $key", map[string]any{
 			"key": "non.existent.key.for.delete",
 		})
 		require.NoError(t, err)
@@ -488,11 +497,11 @@ func TestDelete(t *testing.T) {
 		}
 
 		for i := range testRecords {
-			err := testDB.Insert(&testRecords[i])
+			err := testDB.Insert(ctx, &testRecords[i])
 			require.NoError(t, err)
 		}
 
-		rowsAffected, err := testDB.Delete(&KeyValue{}, "WHERE `key` LIKE $keyPattern AND `value` LIKE $valuePattern", map[string]any{
+		rowsAffected, err := testDB.Delete(ctx, &KeyValue{}, "WHERE `key` LIKE $keyPattern AND `value` LIKE $valuePattern", map[string]any{
 			"keyPattern":   "test.delete.complex.remove%",
 			"valuePattern": "%remove%",
 		})
@@ -500,7 +509,7 @@ func TestDelete(t *testing.T) {
 		require.Equal(t, int64(2), rowsAffected)
 
 		var remainingKVs []KeyValue
-		err = testDB.Select(&remainingKVs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+		err = testDB.Select(ctx, &remainingKVs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 			"pattern": "test.delete.complex.%",
 		})
 		require.NoError(t, err)
@@ -511,29 +520,31 @@ func TestDelete(t *testing.T) {
 }
 
 func TestDeleteRecord(t *testing.T) {
+	ctx := context.Background()
+	
 	t.Run("delete record by ID field", func(t *testing.T) {
 		kv := &KeyValue{
 			Key:   "test.deleterecord.basic",
 			Value: "basic delete test",
 		}
-		err := testDB.Insert(kv)
+		err := testDB.Insert(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 		insertedID := kv.ID
 
 		var retrievedKV KeyValue
-		err = testDB.Select(&retrievedKV, "WHERE id = $id", map[string]any{
+		err = testDB.Select(ctx, &retrievedKV, "WHERE id = $id", map[string]any{
 			"id": insertedID,
 		})
 		require.NoError(t, err)
 		require.Equal(t, insertedID, retrievedKV.ID)
 
-		rowsAffected, err := testDB.DeleteRecord(kv)
+		rowsAffected, err := testDB.DeleteRecord(ctx, kv)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rowsAffected)
 
 		var deletedKV KeyValue
-		err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+		err = testDB.Select(ctx, &deletedKV, "WHERE id = $id", map[string]any{
 			"id": insertedID,
 		})
 		require.Error(t, err)
@@ -551,7 +562,7 @@ func TestDeleteRecord(t *testing.T) {
 			Value: "no ID field",
 		}
 
-		rowsAffected, err := testDB.DeleteRecord(noID)
+		rowsAffected, err := testDB.DeleteRecord(ctx, noID)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "struct does not have an ID field")
 		require.Equal(t, int64(0), rowsAffected)
@@ -570,7 +581,7 @@ func TestDeleteRecord(t *testing.T) {
 			Key:   "test.deleterecord.customid",
 			Value: "custom ID test",
 		}
-		err := testDB.Insert(kv)
+		err := testDB.Insert(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 
@@ -580,12 +591,12 @@ func TestDeleteRecord(t *testing.T) {
 			Value:    "custom ID test",
 		}
 
-		rowsAffected, err := testDB.DeleteRecord(customKV)
+		rowsAffected, err := testDB.DeleteRecord(ctx, customKV)
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rowsAffected)
 
 		var deletedKV KeyValue
-		err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+		err = testDB.Select(ctx, &deletedKV, "WHERE id = $id", map[string]any{
 			"id": kv.ID,
 		})
 		require.Error(t, err)
@@ -594,6 +605,8 @@ func TestDeleteRecord(t *testing.T) {
 }
 
 func TestDeleteRecords(t *testing.T) {
+	ctx := context.Background()
+	
 	t.Run("delete multiple records by slice", func(t *testing.T) {
 		testRecords := []*KeyValue{
 			{Key: "test.deleterecords.1", Value: "first record"},
@@ -602,24 +615,24 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testRecords {
-			err := testDB.Insert(kv)
+			err := testDB.Insert(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
 
 		var kvs []KeyValue
-		err := testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+		err := testDB.Select(ctx, &kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 			"pattern": "test.deleterecords.%",
 		})
 		require.NoError(t, err)
 		require.Len(t, kvs, 3)
 
-		rowsAffected, err := testDB.DeleteRecords(testRecords)
+		rowsAffected, err := testDB.DeleteRecords(ctx, testRecords)
 		require.NoError(t, err)
 		require.Equal(t, int64(3), rowsAffected)
 
 		var deletedKVs []KeyValue
-		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+		err = testDB.Select(ctx, &deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
 			"pattern": "test.deleterecords.%",
 		})
 		require.NoError(t, err)
@@ -633,17 +646,17 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testRecords {
-			err := testDB.Insert(kv)
+			err := testDB.Insert(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
 
-		rowsAffected, err := testDB.DeleteRecords(&testRecords)
+		rowsAffected, err := testDB.DeleteRecords(ctx, &testRecords)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), rowsAffected)
 
 		var deletedKVs []KeyValue
-		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+		err = testDB.Select(ctx, &deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
 			"pattern": "test.deleterecords.ptr.%",
 		})
 		require.NoError(t, err)
@@ -657,7 +670,7 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testRecordPtrs {
-			err := testDB.Insert(kv)
+			err := testDB.Insert(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
@@ -667,12 +680,12 @@ func TestDeleteRecords(t *testing.T) {
 			*testRecordPtrs[1],
 		}
 
-		rowsAffected, err := testDB.DeleteRecords(testRecordValues)
+		rowsAffected, err := testDB.DeleteRecords(ctx, testRecordValues)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), rowsAffected)
 
 		var deletedKVs []KeyValue
-		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+		err = testDB.Select(ctx, &deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
 			"pattern": "test.deleterecords.values.%",
 		})
 		require.NoError(t, err)
@@ -682,7 +695,7 @@ func TestDeleteRecords(t *testing.T) {
 	t.Run("delete empty slice returns zero rows affected", func(t *testing.T) {
 		emptyRecords := []*KeyValue{}
 
-		rowsAffected, err := testDB.DeleteRecords(emptyRecords)
+		rowsAffected, err := testDB.DeleteRecords(ctx, emptyRecords)
 		require.NoError(t, err)
 		require.Equal(t, int64(0), rowsAffected)
 	})
@@ -698,7 +711,7 @@ func TestDeleteRecords(t *testing.T) {
 			{Key: "test.no.id.2", Value: "no ID field 2"},
 		}
 
-		rowsAffected, err := testDB.DeleteRecords(noIDRecords)
+		rowsAffected, err := testDB.DeleteRecords(ctx, noIDRecords)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "struct does not have an ID field")
 		require.Equal(t, int64(0), rowsAffected)
@@ -709,7 +722,7 @@ func TestDeleteRecords(t *testing.T) {
 			Key:   "test.deleterecords.rollback.valid",
 			Value: "valid record",
 		}
-		err := testDB.Insert(validKV)
+		err := testDB.Insert(ctx, validKV)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, validKV.ID)
 
@@ -723,12 +736,12 @@ func TestDeleteRecords(t *testing.T) {
 			&NoIDStruct{Key: "test.no.id", Value: "no ID field"},
 		}
 
-		rowsAffected, err := testDB.DeleteRecords(mixedRecords)
+		rowsAffected, err := testDB.DeleteRecords(ctx, mixedRecords)
 		require.Error(t, err)
 		require.Equal(t, int64(0), rowsAffected)
 
 		var retrievedKV KeyValue
-		err = testDB.Select(&retrievedKV, "WHERE id = $id", map[string]any{
+		err = testDB.Select(ctx, &retrievedKV, "WHERE id = $id", map[string]any{
 			"id": validKV.ID,
 		})
 		require.NoError(t, err)
@@ -741,7 +754,7 @@ func TestDeleteRecords(t *testing.T) {
 			Value: "single record",
 		}
 
-		rowsAffected, err := testDB.DeleteRecords(singleRecord)
+		rowsAffected, err := testDB.DeleteRecords(ctx, singleRecord)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "destination must be a slice")
 		require.Equal(t, int64(0), rowsAffected)
@@ -762,7 +775,7 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testKVs {
-			err := testDB.Insert(kv)
+			err := testDB.Insert(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
@@ -772,13 +785,13 @@ func TestDeleteRecords(t *testing.T) {
 			{CustomID: testKVs[1].ID, Key: "test.deleterecords.customid.2", Value: "custom ID test 2"},
 		}
 
-		rowsAffected, err := testDB.DeleteRecords(customRecords)
+		rowsAffected, err := testDB.DeleteRecords(ctx, customRecords)
 		require.NoError(t, err)
 		require.Equal(t, int64(2), rowsAffected)
 
 		for _, kv := range testKVs {
 			var deletedKV KeyValue
-			err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+			err = testDB.Select(ctx, &deletedKV, "WHERE id = $id", map[string]any{
 				"id": kv.ID,
 			})
 			require.Error(t, err)

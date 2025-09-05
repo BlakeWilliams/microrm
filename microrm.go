@@ -2,6 +2,7 @@
 package microrm
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -16,8 +17,11 @@ var ErrArrayNotSupported = errors.New("array types are not supported")
 // enable using db or tx in the DB struct
 type queryable interface {
 	Query(query string, args ...any) (*sql.Rows, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRow(query string, args ...any) *sql.Row
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	Exec(query string, args ...any) (sql.Result, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // DB represents a database connection and provides methods for executing queries and mapping results to structs.
@@ -67,7 +71,7 @@ func (d *DB) Close() error {
 }
 
 // Select executes a query and scans the result into the provided destination struct or slice of structs.
-func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
+func (d *DB) Select(ctx context.Context, dest any, rawSql string, rawArgs map[string]any) error {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return fmt.Errorf("failed to select data: %w", err)
@@ -79,7 +83,7 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 	}
 	selectFragment, structFields := d.generateSelect(model)
 	query := selectFragment + " " + fragment
-	rows, err := d.db.Query(query, args...)
+	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to execute Select query: %w", err)
 	}
@@ -126,7 +130,7 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 }
 
 // Insert inserts a new record into the database based on the provided struct.
-func (d *DB) Insert(dest any) error {
+func (d *DB) Insert(ctx context.Context, dest any) error {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return fmt.Errorf("failed to insert data: %w", err)
@@ -161,7 +165,7 @@ func (d *DB) Insert(dest any) error {
 
 	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", model.tableName, insertColumns.String(), insertValuePlaceholders.String())
 
-	res, err := d.db.Exec(insertSQL, insertColumnData...)
+	res, err := d.db.ExecContext(ctx, insertSQL, insertColumnData...)
 	if err != nil {
 		return fmt.Errorf("failed to execute insert: %w", err)
 	}
@@ -192,7 +196,7 @@ func (d *DB) Insert(dest any) error {
 // pointer to a struct type representing the table to delete from.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, error) {
+func (d *DB) Delete(ctx context.Context, dest any, rawSql string, rawArgs map[string]any) (int64, error) {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
@@ -205,7 +209,7 @@ func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, err
 	}
 
 	deleteSQL := fmt.Sprintf("DELETE FROM %s %s", model.tableName, fragment)
-	res, err := d.db.Exec(deleteSQL, args...)
+	res, err := d.db.ExecContext(ctx, deleteSQL, args...)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute delete: %w", err)
 	}
@@ -224,7 +228,7 @@ func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, err
 // `DB.Delete`.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) DeleteRecords(dest any) (int64, error) {
+func (d *DB) DeleteRecords(ctx context.Context, dest any) (int64, error) {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
@@ -237,12 +241,12 @@ func (d *DB) DeleteRecords(dest any) (int64, error) {
 	destValue := concreteValue(dest)
 
 	n := int64(0)
-	err = d.Transaction(func(tx *DB) error {
+	err = d.Transaction(ctx, func(tx *DB) error {
 		// For []*T, items are already pointers so we can pass them directly
 		if model.isSliceOfPointers {
 			for i := 0; i < destValue.Len(); i++ {
 				item := destValue.Index(i).Interface()
-				nn, err := tx.DeleteRecord(item)
+				nn, err := tx.DeleteRecord(ctx, item)
 				if err != nil {
 					return err
 				}
@@ -256,7 +260,7 @@ func (d *DB) DeleteRecords(dest any) (int64, error) {
 				addressableItem := reflect.New(item.Type())
 				addressableItem.Elem().Set(item)
 
-				nn, err := tx.DeleteRecord(addressableItem.Interface())
+				nn, err := tx.DeleteRecord(ctx, addressableItem.Interface())
 				if err != nil {
 					return err
 				}
@@ -277,7 +281,7 @@ func (d *DB) DeleteRecords(dest any) (int64, error) {
 // The dest parameter should be a pointer to a struct representing the record to delete.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) DeleteRecord(dest any) (int64, error) {
+func (d *DB) DeleteRecord(ctx context.Context, dest any) (int64, error) {
 	model, err := d.newModelType(dest)
 
 	if err != nil {
@@ -294,7 +298,7 @@ func (d *DB) DeleteRecord(dest any) (int64, error) {
 		return 0, fmt.Errorf("struct does not have an ID field")
 	}
 
-	res, err := d.db.Exec(deleteSQL, idField.Interface())
+	res, err := d.db.ExecContext(ctx, deleteSQL, idField.Interface())
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute delete: %w", err)
 	}
@@ -322,11 +326,11 @@ func (d *DB) findIDField(destValue reflect.Value) (reflect.Value, bool) {
 // is committed.
 //
 // Transactions can not be nested at this time.
-func (d *DB) Transaction(fn func(tx *DB) error) error {
+func (d *DB) Transaction(ctx context.Context, fn func(tx *DB) error) error {
 	if _, ok := d.db.(*sql.DB); !ok {
 		return fmt.Errorf("nested transactions are not supported")
 	}
-	tx, err := d.db.(*sql.DB).Begin()
+	tx, err := d.db.(*sql.DB).BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
