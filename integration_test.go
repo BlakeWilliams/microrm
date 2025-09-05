@@ -1277,6 +1277,109 @@ func TestSqlNullTime(t *testing.T) {
 	})
 }
 
+func TestQuery(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("query with parameters", func(t *testing.T) {
+		rows, err := testDB.Query(ctx, "SELECT * FROM key_values WHERE id BETWEEN $min AND $max", map[string]any{
+			"min": 1,
+			"max": 2,
+		})
+		require.NoError(t, err)
+		defer rows.Close()
+
+		var count int
+		for rows.Next() {
+			count++
+		}
+		require.Equal(t, 2, count)
+	})
+
+	t.Run("query with missing parameter", func(t *testing.T) {
+		_, err := testDB.Query(ctx, "SELECT * FROM key_values WHERE id = $missing", map[string]any{
+			"other": 1,
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing argument for named parameter: missing")
+	})
+
+	t.Run("query with escaped dollar sign", func(t *testing.T) {
+		rows, err := testDB.Query(ctx, "SELECT '$$test' as literal_dollar", map[string]any{})
+		require.NoError(t, err)
+		defer rows.Close()
+
+		require.True(t, rows.Next())
+		var result string
+		err = rows.Scan(&result)
+		require.NoError(t, err)
+		require.Equal(t, "$test", result)
+	})
+}
+
+func TestExec(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("exec insert with named parameters", func(t *testing.T) {
+		result, err := testDB.Exec(ctx, "INSERT INTO key_values (`key`, value) VALUES ($key, $value)", map[string]any{
+			"key":   "test.exec.insert",
+			"value": "test value",
+		})
+		require.NoError(t, err)
+
+		rowsAffected, err := result.RowsAffected()
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+
+		lastID, err := result.LastInsertId()
+		require.NoError(t, err)
+		require.Greater(t, lastID, int64(0))
+	})
+
+	t.Run("exec delete with named parameters", func(t *testing.T) {
+		result, err := testDB.Exec(ctx, "DELETE FROM key_values WHERE `key` = $key", map[string]any{
+			"key": "test.exec.insert",
+		})
+		require.NoError(t, err)
+
+		rowsAffected, err := result.RowsAffected()
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+	})
+
+	t.Run("exec with no parameters", func(t *testing.T) {
+		result, err := testDB.Exec(ctx, "INSERT INTO key_values (`key`, value) VALUES ('test.no.params', 'no params')", map[string]any{})
+		require.NoError(t, err)
+
+		rowsAffected, err := result.RowsAffected()
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+
+		_, err = testDB.Exec(ctx, "DELETE FROM key_values WHERE `key` = 'test.no.params'", map[string]any{})
+		require.NoError(t, err)
+	})
+
+	t.Run("exec with missing parameter", func(t *testing.T) {
+		_, err := testDB.Exec(ctx, "INSERT INTO key_values (`key`, value) VALUES ($key, $missing)", map[string]any{
+			"key": "test.missing",
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing argument for named parameter: missing")
+	})
+
+	t.Run("exec with escaped dollar sign", func(t *testing.T) {
+		result, err := testDB.Exec(ctx, "INSERT INTO key_values (`key`, value) VALUES ('test.dollar', '$$escaped')", map[string]any{})
+		require.NoError(t, err)
+
+		rowsAffected, err := result.RowsAffected()
+		require.NoError(t, err)
+		require.Equal(t, int64(1), rowsAffected)
+
+		_, err = testDB.Exec(ctx, "DELETE FROM key_values WHERE `key` = 'test.dollar'", map[string]any{})
+		require.NoError(t, err)
+
+	})
+}
+
 func setupTestDatabase(rootDSN, dsn, database string) error {
 	rootDB, err := sql.Open("mysql", rootDSN)
 	if err != nil {
