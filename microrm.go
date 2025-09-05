@@ -4,15 +4,12 @@ package microrm
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"sync"
 	"unicode"
 )
-
-var ErrArrayNotSupported = errors.New("array types are not supported")
 
 // enable using db or tx in the DB struct
 type queryable interface {
