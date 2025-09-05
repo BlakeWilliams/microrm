@@ -50,7 +50,7 @@ func TestMain(m *testing.M) {
 
 func TestSelect(t *testing.T) {
 	ctx := context.Background()
-	
+
 	t.Run("select single key-value", func(t *testing.T) {
 		var kv KeyValue
 		err := testDB.Select(ctx, &kv, "WHERE `key` = $key", map[string]any{
@@ -131,7 +131,7 @@ func TestSelect(t *testing.T) {
 
 func TestInsert(t *testing.T) {
 	ctx := context.Background()
-	
+
 	t.Run("populates ID of inserted structs", func(t *testing.T) {
 		kv := &KeyValue{
 			Key:   "test.insert.key",
@@ -170,7 +170,7 @@ func TestInsert(t *testing.T) {
 		require.NoError(t, err)
 
 		var retrievedKV KeyValue
-		row := testDB.db.QueryRow("SELECT id, `key`, value FROM key_values WHERE id = ?", kv.ID)
+		row := testDB.db.QueryRowContext(ctx, "SELECT id, `key`, value FROM key_values WHERE id = ?", kv.ID)
 		err = row.Scan(&retrievedKV.ID, &retrievedKV.Key, &retrievedKV.Value)
 		require.NoError(t, err)
 
@@ -182,7 +182,7 @@ func TestInsert(t *testing.T) {
 
 func TestTransaction(t *testing.T) {
 	ctx := context.Background()
-	
+
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -393,7 +393,7 @@ func TestTransaction(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	ctx := context.Background()
-	
+
 	t.Run("delete single record by key", func(t *testing.T) {
 		kv := &KeyValue{
 			Key:   "test.delete.single",
@@ -521,7 +521,7 @@ func TestDelete(t *testing.T) {
 
 func TestDeleteRecord(t *testing.T) {
 	ctx := context.Background()
-	
+
 	t.Run("delete record by ID field", func(t *testing.T) {
 		kv := &KeyValue{
 			Key:   "test.deleterecord.basic",
@@ -606,7 +606,7 @@ func TestDeleteRecord(t *testing.T) {
 
 func TestDeleteRecords(t *testing.T) {
 	ctx := context.Background()
-	
+
 	t.Run("delete multiple records by slice", func(t *testing.T) {
 		testRecords := []*KeyValue{
 			{Key: "test.deleterecords.1", Value: "first record"},
