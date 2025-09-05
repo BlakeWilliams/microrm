@@ -144,7 +144,7 @@ func (d *DB) Insert(dest any) error {
 	if rename, ok := d.nameMap[tableName]; ok {
 		tableName = rename
 	} else {
-		tableName = snake_case(destType.Name())
+		tableName = snake_case(destRootType.Name())
 	}
 
 	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tableName, insertColumns.String(), insertValuePlaceholders.String())
@@ -203,6 +203,54 @@ func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, err
 	return n, nil
 }
 
+// DeleteRecords deletes multiple records from the database based on the
+// provided slice of structs.  The dest parameter should be a pointer to a slice
+// of structs representing the records to delete. It deletes each record by its
+// ID inside of a transaction.  If you need to delete in a single statement, use
+// `DB.Delete`.
+//
+// It returns the number of rows affected, or an error if the operation fails.
+func (d *DB) DeleteRecords(dest any) (int64, error) {
+	destType := reflect.TypeOf(dest)
+	if destType.Kind() == reflect.Pointer {
+		if destType.Elem().Kind() != reflect.Slice {
+			return 0, fmt.Errorf("destination must be a slice, got %s", destType.Kind())
+		}
+	} else if destType.Kind() != reflect.Slice {
+		return 0, fmt.Errorf("destination must be a slice, got %s", destType.Kind())
+	}
+
+	destValue := reflect.ValueOf(dest)
+	if destValue.Kind() == reflect.Pointer {
+		destValue = destValue.Elem()
+	}
+
+	n := int64(0)
+	err := d.Transaction(func(tx *DB) error {
+		for i := 0; i < destValue.Len(); i++ {
+			item := destValue.Index(i).Interface()
+			nn, err := tx.DeleteRecord(item)
+			if err != nil {
+				return err
+			}
+
+			n += nn
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	return n, nil
+}
+
+// DeleteRecord deletes a single record from the database based on the provided struct.
+// The dest parameter should be a pointer to a struct representing the record to delete.
+//
+// It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) DeleteRecord(dest any) (int64, error) {
 	destType, err := identifyRootType(dest)
 	destValue := reflect.ValueOf(dest)
@@ -376,7 +424,7 @@ func (d *DB) generateSelect(destType reflect.Type) (string, []string) {
 			columnName = snake_case(field.Name)
 		}
 		columns = append(columns, field.Name)
-		if i > 0 {
+		if len(columns) > 1 {
 			columnStr.WriteString(", ")
 		}
 		columnStr.WriteString("`" + columnName + "`")

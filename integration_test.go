@@ -107,10 +107,6 @@ func TestSelect(t *testing.T) {
 }
 
 func TestInsert(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
 	t.Run("populates ID of inserted structs", func(t *testing.T) {
 		kv := &KeyValue{
 			Key:   "test.insert.key",
@@ -591,6 +587,172 @@ func TestDeleteRecord(t *testing.T) {
 		})
 		require.Error(t, err)
 		require.Equal(t, sql.ErrNoRows, err)
+	})
+}
+
+func TestDeleteRecords(t *testing.T) {
+	t.Run("delete multiple records by slice", func(t *testing.T) {
+		testRecords := []*KeyValue{
+			{Key: "test.deleterecords.1", Value: "first record"},
+			{Key: "test.deleterecords.2", Value: "second record"},
+			{Key: "test.deleterecords.3", Value: "third record"},
+		}
+
+		for _, kv := range testRecords {
+			err := testDB.Insert(kv)
+			require.NoError(t, err)
+			require.NotEqual(t, 0, kv.ID)
+		}
+
+		var kvs []KeyValue
+		err := testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+			"pattern": "test.deleterecords.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, kvs, 3)
+
+		rowsAffected, err := testDB.DeleteRecords(testRecords)
+		require.NoError(t, err)
+		require.Equal(t, int64(3), rowsAffected)
+
+		var deletedKVs []KeyValue
+		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+			"pattern": "test.deleterecords.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, deletedKVs, 0)
+	})
+
+	t.Run("delete records by pointer to slice", func(t *testing.T) {
+		testRecords := []*KeyValue{
+			{Key: "test.deleterecords.ptr.1", Value: "first record"},
+			{Key: "test.deleterecords.ptr.2", Value: "second record"},
+		}
+
+		for _, kv := range testRecords {
+			err := testDB.Insert(kv)
+			require.NoError(t, err)
+			require.NotEqual(t, 0, kv.ID)
+		}
+
+		rowsAffected, err := testDB.DeleteRecords(&testRecords)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), rowsAffected)
+
+		var deletedKVs []KeyValue
+		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+			"pattern": "test.deleterecords.ptr.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, deletedKVs, 0)
+	})
+
+	t.Run("delete empty slice returns zero rows affected", func(t *testing.T) {
+		emptyRecords := []*KeyValue{}
+
+		rowsAffected, err := testDB.DeleteRecords(emptyRecords)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), rowsAffected)
+	})
+
+	t.Run("delete records without ID field should error", func(t *testing.T) {
+		type NoIDStruct struct {
+			Key   string `db:"key"`
+			Value string `db:"value"`
+		}
+
+		noIDRecords := []*NoIDStruct{
+			{Key: "test.no.id.1", Value: "no ID field 1"},
+			{Key: "test.no.id.2", Value: "no ID field 2"},
+		}
+
+		rowsAffected, err := testDB.DeleteRecords(noIDRecords)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "struct does not have an ID field")
+		require.Equal(t, int64(0), rowsAffected)
+	})
+
+	t.Run("delete records with mixed success and failure should rollback", func(t *testing.T) {
+		validKV := &KeyValue{
+			Key:   "test.deleterecords.rollback.valid",
+			Value: "valid record",
+		}
+		err := testDB.Insert(validKV)
+		require.NoError(t, err)
+		require.NotEqual(t, 0, validKV.ID)
+
+		// Create mixed slice with valid and invalid records
+		type NoIDStruct struct {
+			Key   string `db:"key"`
+			Value string `db:"value"`
+		}
+
+		mixedRecords := []any{
+			validKV,
+			&NoIDStruct{Key: "test.no.id", Value: "no ID field"},
+		}
+
+		rowsAffected, err := testDB.DeleteRecords(mixedRecords)
+		require.Error(t, err)
+		require.Equal(t, int64(0), rowsAffected)
+
+		var retrievedKV KeyValue
+		err = testDB.Select(&retrievedKV, "WHERE id = $id", map[string]any{
+			"id": validKV.ID,
+		})
+		require.NoError(t, err)
+		require.Equal(t, validKV.ID, retrievedKV.ID)
+	})
+
+	t.Run("delete with non-slice parameter should error", func(t *testing.T) {
+		singleRecord := &KeyValue{
+			Key:   "test.single.record",
+			Value: "single record",
+		}
+
+		rowsAffected, err := testDB.DeleteRecords(singleRecord)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "destination must be a slice")
+		require.Equal(t, int64(0), rowsAffected)
+	})
+
+	t.Run("delete records with custom db tag for ID", func(t *testing.T) {
+		type CustomIDStruct struct {
+			CustomID int    `db:"id"`
+			Key      string `db:"key"`
+			Value    string `db:"value"`
+		}
+
+		testDB.MapNameToTable("CustomIDStruct", "key_values")
+
+		testKVs := []*KeyValue{
+			{Key: "test.deleterecords.customid.1", Value: "custom ID test 1"},
+			{Key: "test.deleterecords.customid.2", Value: "custom ID test 2"},
+		}
+
+		for _, kv := range testKVs {
+			err := testDB.Insert(kv)
+			require.NoError(t, err)
+			require.NotEqual(t, 0, kv.ID)
+		}
+
+		customRecords := []*CustomIDStruct{
+			{CustomID: testKVs[0].ID, Key: "test.deleterecords.customid.1", Value: "custom ID test 1"},
+			{CustomID: testKVs[1].ID, Key: "test.deleterecords.customid.2", Value: "custom ID test 2"},
+		}
+
+		rowsAffected, err := testDB.DeleteRecords(customRecords)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), rowsAffected)
+
+		for _, kv := range testKVs {
+			var deletedKV KeyValue
+			err = testDB.Select(&deletedKV, "WHERE id = $id", map[string]any{
+				"id": kv.ID,
+			})
+			require.Error(t, err)
+			require.Equal(t, sql.ErrNoRows, err)
+		}
 	})
 }
 
