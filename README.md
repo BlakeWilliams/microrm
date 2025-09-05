@@ -19,15 +19,34 @@ type User struct {
     Name string `db:"name"`
 }
 
-// Select some data
+// Select a single record
 var user User
-// micorm automatically generates the necessary columns and table name
-_ := db.Get(&user, "WHERE id = $ID", map[string]any{"ID": 1})
-
-newUser := User{Name: "Alice"}
 // microrm automatically generates the necessary columns and table name
-_ := db.Insert(&newUser)
+err := db.Select(&user, "WHERE id = $ID", map[string]any{"ID": 1})
+
+// Select multiple records
+var users []User
+err = db.Select(&users, "WHERE name LIKE $pattern", map[string]any{"pattern": "A%"})
+
+// Insert a new record
+newUser := User{Name: "Alice"}
+err = db.Insert(&newUser)
 fmt.Println("New user ID:", newUser.ID) // ID's are automatically populated after inserts
+
+// Delete records with a WHERE clause
+rowsAffected, err := db.Delete(&User{}, "WHERE name = $name", map[string]any{"name": "Alice"})
+fmt.Println("Deleted rows:", rowsAffected)
+
+// Delete a specific record (uses ID)
+user := User{ID: 1, Name: "Alice"}
+rowsAffected, err = db.DeleteRecord(&user)
+
+// Delete multiple records (uses ID)
+users := []*User{
+    {ID: 1, Name: "Alice"},
+    {ID: 2, Name: "Bob"},
+}
+rowsAffected, err = db.DeleteRecords(users)
 ```
 
 ### Escaping $
@@ -41,6 +60,7 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [ ] Support for `update`ing data via `DB.Update`.
 - [x] Support for `delete`ing data via `DB.Delete`.
 - [x] Support for `delete`ing specific structs via `DB.DeleteRecord`.
+- [x] Support for `delete`ing multiple structs via `DB.DeleteRecords`.
 - [x] Support for transactions via `DB.Transaction`
 - [ ] Updates `created_at` and `updated_at` fields automatically.
 
