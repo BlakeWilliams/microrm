@@ -152,9 +152,16 @@ func (d *DB) Insert(dest any) error {
 	}
 
 	// Attempt to set the ID field if it exists
-	idField := reflect.ValueOf(dest).Elem().FieldByName("ID")
-	if idField.IsValid() && idField.CanSet() && (idField.Kind() == reflect.Int || idField.Kind() == reflect.Int64) {
-		idField.SetInt(id)
+	idField, ok := d.findIDField(model.SelfElem())
+	if ok && idField.IsValid() && idField.CanSet() {
+		switch idField.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			idField.SetInt(id)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			if id >= 0 {
+				idField.SetUint(uint64(id))
+			}
+		}
 	}
 
 	return nil
@@ -269,10 +276,9 @@ func (d *DB) DeleteRecord(dest any) (int64, error) {
 }
 
 func (d *DB) findIDField(destValue reflect.Value) (reflect.Value, bool) {
-	destValue.Type()
 	for i := 0; i < destValue.NumField(); i++ {
 		field := destValue.Type().Field(i)
-		if field.Name == "ID" || field.Tag.Get("db") == "id" {
+		if field.Name == "ID" || field.Name == "Id" || field.Tag.Get("db") == "id" {
 			return destValue.Field(i), true
 		}
 	}
