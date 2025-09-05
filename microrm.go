@@ -11,6 +11,9 @@ import (
 	"unicode"
 )
 
+type Args = map[string]any
+type Updates = map[string]any
+
 // enable using db or tx in the DB struct
 type queryable interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -65,7 +68,7 @@ func (d *DB) Close() error {
 }
 
 // Select executes a query and scans the result into the provided destination struct or slice of structs.
-func (d *DB) Select(ctx context.Context, dest any, rawSql string, rawArgs map[string]any) error {
+func (d *DB) Select(ctx context.Context, dest any, rawSql string, rawArgs Args) error {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return fmt.Errorf("failed to select data: %w", err)
@@ -190,7 +193,7 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 // pointer to a struct type representing the table to delete from.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) Delete(ctx context.Context, dest any, rawSql string, rawArgs map[string]any) (int64, error) {
+func (d *DB) Delete(ctx context.Context, dest any, rawSql string, rawArgs Args) (int64, error) {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
@@ -315,6 +318,63 @@ func (d *DB) findIDField(destValue reflect.Value) (reflect.Value, bool) {
 	return reflect.Value{}, false
 }
 
+// Update updates records in the database based on the provided struct type,
+// SQL fragment with named parameters, and a map of field-value pairs to update.
+// The structType parameter should be a pointer to a struct type representing
+// the table to update.
+//
+// It returns the number of rows affected, or an error if the operation fails.
+func (d *DB) Update(ctx context.Context, structType any, sql string, args Args, updates Updates) (int64, error) {
+	model, err := d.newModelType(structType)
+	if err != nil {
+		return 0, fmt.Errorf("failed to update data: %w", err)
+	}
+	if !model.isStructPointer && !model.isStruct {
+		return 0, fmt.Errorf("destination must be a struct or pointer to a struct, got %s", model.baseType.Kind())
+	}
+	if len(updates) == 0 {
+		return 0, fmt.Errorf("no updates provided")
+	}
+
+	var setClauses strings.Builder
+	updateValues := make([]any, 0, len(updates))
+
+	for fieldName, val := range updates {
+		field, ok := model.elemType.FieldByName(fieldName)
+		if !ok || !field.IsExported() {
+			return 0, fmt.Errorf("cannot update missing or unexported field: %s", fieldName)
+		}
+		col := field.Tag.Get("db")
+		if col == "" {
+			col = snake_case(field.Name)
+		}
+		if setClauses.Len() > 0 {
+			setClauses.WriteString(", ")
+		}
+		setClauses.WriteString(fmt.Sprintf("`%s` = ?", col))
+		updateValues = append(updateValues, val)
+	}
+
+	fragment, whereArgs, err := d.replaceNames(sql, args)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare update query: %w", err)
+	}
+
+	updateSQL := fmt.Sprintf("UPDATE %s SET %s %s", model.tableName, setClauses.String(), fragment)
+	finalArgs := append(updateValues, whereArgs...)
+
+	res, err := d.db.ExecContext(ctx, updateSQL, finalArgs...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute update: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to retrieve rows affected: %w", err)
+	}
+
+	return rows, nil
+}
+
 // Transaction executes the provided function within a database transaction. If
 // the function returns an error, the transaction is rolled back, otherwise it
 // is committed.
@@ -372,7 +432,7 @@ func scanStruct(fields []string, rows *sql.Rows, dest reflect.Value) error {
 	return nil
 }
 
-func (d *DB) replaceNames(rawSql string, args map[string]any) (string, []any, error) {
+func (d *DB) replaceNames(rawSql string, args Args) (string, []any, error) {
 	finalArgs := make([]any, 0, len(args))
 	builder := strings.Builder{}
 

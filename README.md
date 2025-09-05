@@ -22,19 +22,23 @@ type User struct {
 // Select a single record
 var user User
 // microrm automatically generates the necessary columns and table name
-err := db.Select(ctx, &user, "WHERE id = $ID", map[string]any{"ID": 1})
+err := db.Select(ctx, &user, "WHERE id = $ID", microrm.Args{"ID": 1})
 
 // Select multiple records
 var users []User
-err = db.Select(ctx, &users, "WHERE name LIKE $pattern", map[string]any{"pattern": "A%"})
+err = db.Select(ctx, &users, "WHERE name LIKE $pattern", microrm.Args{"pattern": "A%"})
 
 // Insert a new record
 newUser := User{Name: "Alice"}
 err = db.Insert(ctx, &newUser)
 fmt.Println("New user ID:", newUser.ID) // ID's are automatically populated after inserts
 
-// Delete records with a WHERE clause
-rowsAffected, err := db.Delete(ctx, &User{}, "WHERE name = $name", map[string]any{"name": "Alice"})
+// Update records
+rowsAffected, err := db.Update(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alice"}, microrm.Updates{"name": "Alicia"})
+fmt.Println("Updated rows:", rowsAffected)
+
+// Delete records
+rowsAffected, err = db.Delete(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alicia"})
 fmt.Println("Deleted rows:", rowsAffected)
 
 // Delete a specific record (uses ID)
@@ -57,7 +61,8 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 
 - [x] Support for `select`ing data via `DB.Select`.
 - [x] Support for `insert`ing data via `DB.Insert`.
-- [ ] Support for `update`ing data via `DB.Update`.
+- [x] Support for `update`ing data via `DB.Update`.
+- [ ] Support for `update`ing specific structs via `DB.UpdateRecord`.
 - [x] Support for `delete`ing data via `DB.Delete`.
 - [x] Support for `delete`ing specific structs via `DB.DeleteRecord`.
 - [x] Support for `delete`ing multiple structs via `DB.DeleteRecords`.

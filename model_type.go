@@ -16,6 +16,7 @@ type modelType struct {
 	numField          int
 	isSliceOfPointers bool
 	isStructPointer   bool
+	isStruct          bool
 	isValidSlice      bool
 }
 
@@ -47,6 +48,7 @@ func newModelType(t any, tableMap map[string]string) (*modelType, error) {
 		numField:          elemType.NumField(),
 		isSliceOfPointers: determineIsSliceOfPointers(baseType),
 		isStructPointer:   determineIsStructPointer(baseType),
+		isStruct:          determineIsStruct(baseType),
 		isValidSlice:      determineIsValidSlice(baseType, elemType),
 	}, nil
 }
@@ -72,6 +74,10 @@ func determineIsSliceOfPointers(baseType reflect.Type) bool {
 
 func determineIsStructPointer(baseType reflect.Type) bool {
 	return baseType.Kind() == reflect.Pointer && baseType.Elem().Kind() == reflect.Struct
+}
+
+func determineIsStruct(baseType reflect.Type) bool {
+	return baseType.Kind() == reflect.Struct
 }
 
 func determineIsValidSlice(baseType, elemType reflect.Type) bool {
