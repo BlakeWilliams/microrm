@@ -218,19 +218,31 @@ func (d *DB) DeleteRecords(dest any) (int64, error) {
 
 	n := int64(0)
 	err = d.Transaction(func(tx *DB) error {
-		for i := 0; i < destValue.Len(); i++ {
-			item := destValue.Index(i)
-			if item.Kind() != reflect.Pointer {
-				item = item.Addr()
+		// For []*T, items are already pointers so we can pass them directly
+		if model.IsSliceOfPointers() {
+			for i := 0; i < destValue.Len(); i++ {
+				item := destValue.Index(i).Interface()
+				nn, err := tx.DeleteRecord(item)
+				if err != nil {
+					return err
+				}
+				n += nn
 			}
-			nn, err := tx.DeleteRecord(item.Interface())
-			if err != nil {
-				return err
-			}
+		} else {
+			// For []T, we need to take address but can optimize by reusing addressable value
+			for i := 0; i < destValue.Len(); i++ {
+				item := destValue.Index(i)
+				// Create addressable copy only once per item
+				addressableItem := reflect.New(item.Type())
+				addressableItem.Elem().Set(item)
 
-			n += nn
+				nn, err := tx.DeleteRecord(addressableItem.Interface())
+				if err != nil {
+					return err
+				}
+				n += nn
+			}
 		}
-
 		return nil
 	})
 
