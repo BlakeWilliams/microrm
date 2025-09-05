@@ -48,7 +48,7 @@ func (d *DB) Close() error {
 
 // Select executes a query and scans the result into the provided destination struct or slice of structs.
 func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
-	destType, err := identifyRootType(dest)
+	model, err := newModelType(dest, d.nameMap)
 	if err != nil {
 		return fmt.Errorf("failed to select data: %w", err)
 	}
@@ -57,7 +57,7 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare query: %w", err)
 	}
-	selectFragment, structFields := d.generateSelect(destType)
+	selectFragment, structFields := d.generateSelect(model)
 	query := selectFragment + " " + fragment
 	rows, err := d.db.Query(query, args...)
 	if err != nil {
@@ -76,19 +76,21 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 		sliceTarget := reflect.ValueOf(dest).Elem()
 
 		for rows.Next() {
-			row := reflect.New(destType).Elem()
+			row := model.NewElem()
 			if err := scanStruct(structFields, rows, row); err != nil {
 				return fmt.Errorf("failed to scan row: %w", err)
 			}
+
+			if model.IsSliceOfPointers() {
+				row = row.Addr()
+			}
+
 			sliceTarget = reflect.Append(sliceTarget, row)
 		}
 
 		reflect.ValueOf(dest).Elem().Set(sliceTarget)
 	} else {
-		row := reflect.ValueOf(dest)
-		if row.Kind() == reflect.Ptr {
-			row = row.Elem()
-		}
+		row := model.SelfElem()
 
 		// rows.Next() must be called to advance to the first row and check if
 		// we actually have results, otherwise return sql.ErrNoRows
@@ -105,23 +107,20 @@ func (d *DB) Select(dest any, rawSql string, rawArgs map[string]any) error {
 
 // Insert inserts a new record into the database based on the provided struct.
 func (d *DB) Insert(dest any) error {
-	destType := reflect.TypeOf(dest)
-	if destType.Kind() != reflect.Pointer {
-		return fmt.Errorf("destination must be a pointer to a struct, got %s", destType.Kind())
+	model, err := newModelType(dest, d.nameMap)
+	if err != nil {
+		return fmt.Errorf("failed to insert data: %w", err)
 	}
-
-	destRootType := destType.Elem()
-
-	if destRootType.Kind() != reflect.Struct {
-		return fmt.Errorf("destination must be a struct, got %s", destType.Kind())
+	if !model.IsStructPointer() {
+		return fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
 	}
 
 	var insertColumns strings.Builder
-	insertColumnData := make([]any, 0, destRootType.NumField())
+	insertColumnData := make([]any, 0, model.NumField())
 	var insertValuePlaceholders strings.Builder
 
-	for i := 0; i < destRootType.NumField(); i++ {
-		field := destRootType.Field(i)
+	for i := 0; i < model.NumField(); i++ {
+		field := model.FieldType(i)
 		if !field.IsExported() {
 			continue
 		}
@@ -140,14 +139,7 @@ func (d *DB) Insert(dest any) error {
 		insertValuePlaceholders.WriteString("?")
 	}
 
-	tableName := destRootType.Name()
-	if rename, ok := d.nameMap[tableName]; ok {
-		tableName = rename
-	} else {
-		tableName = snake_case(destRootType.Name())
-	}
-
-	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", tableName, insertColumns.String(), insertValuePlaceholders.String())
+	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", model.tableName, insertColumns.String(), insertValuePlaceholders.String())
 
 	res, err := d.db.Exec(insertSQL, insertColumnData...)
 	if err != nil {
@@ -174,7 +166,7 @@ func (d *DB) Insert(dest any) error {
 //
 // It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, error) {
-	destType, err := identifyRootType(dest)
+	model, err := newModelType(dest, d.nameMap)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
@@ -185,12 +177,7 @@ func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, err
 		return 0, fmt.Errorf("failed to prepare delete query: %w", err)
 	}
 
-	tableName := snake_case(destType.Name())
-	if rename, ok := d.nameMap[destType.Name()]; ok {
-		tableName = rename
-	}
-
-	deleteSQL := fmt.Sprintf("DELETE FROM %s %s", tableName, fragment)
+	deleteSQL := fmt.Sprintf("DELETE FROM %s %s", model.tableName, fragment)
 	res, err := d.db.Exec(deleteSQL, args...)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute delete: %w", err)
@@ -211,25 +198,25 @@ func (d *DB) Delete(dest any, rawSql string, rawArgs map[string]any) (int64, err
 //
 // It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) DeleteRecords(dest any) (int64, error) {
-	destType := reflect.TypeOf(dest)
-	if destType.Kind() == reflect.Pointer {
-		if destType.Elem().Kind() != reflect.Slice {
-			return 0, fmt.Errorf("destination must be a slice, got %s", destType.Kind())
-		}
-	} else if destType.Kind() != reflect.Slice {
-		return 0, fmt.Errorf("destination must be a slice, got %s", destType.Kind())
+	model, err := newModelType(dest, d.nameMap)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
 
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() == reflect.Pointer {
-		destValue = destValue.Elem()
+	if !model.IsValidSlice() {
+		return 0, fmt.Errorf("destination must be a slice, got %s", model.baseType.Kind())
 	}
+
+	destValue := model.SelfElem()
 
 	n := int64(0)
-	err := d.Transaction(func(tx *DB) error {
+	err = d.Transaction(func(tx *DB) error {
 		for i := 0; i < destValue.Len(); i++ {
-			item := destValue.Index(i).Interface()
-			nn, err := tx.DeleteRecord(item)
+			item := destValue.Index(i)
+			if item.Kind() != reflect.Pointer {
+				item = item.Addr()
+			}
+			nn, err := tx.DeleteRecord(item.Interface())
 			if err != nil {
 				return err
 			}
@@ -252,29 +239,18 @@ func (d *DB) DeleteRecords(dest any) (int64, error) {
 //
 // It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) DeleteRecord(dest any) (int64, error) {
-	destType, err := identifyRootType(dest)
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() == reflect.Pointer {
-		destValue = destValue.Elem()
-	}
+	model, err := newModelType(dest, d.nameMap)
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
 
-	if destType.Kind() == reflect.Pointer && destType.Elem().Kind() != reflect.Struct {
-		return 0, fmt.Errorf("destination must be a struct, got pointer to %s", destType.Elem().Kind())
-	} else if destType.Kind() != reflect.Struct {
-		return 0, fmt.Errorf("destination must be a struct, got %s", destType.Kind())
+	if !model.IsStructPointer() {
+		return 0, fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
 	}
 
-	tableName := snake_case(destType.Name())
-	if rename, ok := d.nameMap[destType.Name()]; ok {
-		tableName = rename
-	}
-
-	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", tableName)
-	idField, ok := d.findIDField(destValue)
+	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", model.tableName)
+	idField, ok := d.findIDField(model.SelfElem())
 	if !ok {
 		return 0, fmt.Errorf("struct does not have an ID field")
 	}
@@ -403,18 +379,11 @@ func (d *DB) replaceNames(rawSql string, args map[string]any) (string, []any, er
 
 // generateSelect creates a SELECT SQL statement based on the struct type, mapping struct fields to database columns.
 // it returns the SQL string and a slice of column names to be used in scanning.
-func (d *DB) generateSelect(destType reflect.Type) (string, []string) {
-	tableName := destType.Name()
-	if rename, ok := d.nameMap[tableName]; ok {
-		tableName = rename
-	} else {
-		tableName = snake_case(destType.Name())
-	}
-
-	columns := make([]string, 0, destType.NumField())
+func (d *DB) generateSelect(model *modelType) (string, []string) {
+	columns := make([]string, 0, model.NumField())
 	var columnStr strings.Builder
-	for i := 0; i < destType.NumField(); i++ {
-		field := destType.Field(i)
+	for i := 0; i < model.NumField(); i++ {
+		field := model.FieldType(i)
 		if !field.IsExported() {
 			continue
 		}
@@ -430,7 +399,7 @@ func (d *DB) generateSelect(destType reflect.Type) (string, []string) {
 		columnStr.WriteString("`" + columnName + "`")
 	}
 
-	return fmt.Sprintf("SELECT %s FROM %s", columnStr.String(), tableName), columns
+	return fmt.Sprintf("SELECT %s FROM %s", columnStr.String(), model.tableName), columns
 }
 
 func snake_case(name string) string {
@@ -448,24 +417,4 @@ func snake_case(name string) string {
 	}
 
 	return snaked.String()
-}
-
-func identifyRootType(dest any) (reflect.Type, error) {
-	current := reflect.TypeOf(dest)
-
-	for {
-		if current.Kind() == reflect.Ptr || current.Kind() == reflect.Slice {
-			current = current.Elem()
-			continue
-		} else if current.Kind() == reflect.Array {
-			return nil, ErrArrayNotSupported
-		}
-		break
-	}
-
-	if current.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("destination must be a struct or slice of structs, got %s", current.Kind())
-	}
-
-	return current, nil
 }

@@ -79,6 +79,26 @@ func TestSelect(t *testing.T) {
 		require.Equal(t, expectedKVs, kvs)
 	})
 
+	t.Run("select multiple key-values into slice of pointers", func(t *testing.T) {
+		var kvs []*KeyValue
+		err := testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
+			"pattern": "config.database.%",
+		})
+
+		require.NoError(t, err)
+		require.Len(t, kvs, 2)
+
+		expectedKVs := []*KeyValue{
+			{ID: 1, Key: "config.database.host", Value: "localhost"},
+			{ID: 2, Key: "config.database.port", Value: "3306"},
+		}
+
+		for i, kv := range kvs {
+			require.NotNil(t, kv)
+			require.Equal(t, *expectedKVs[i], *kv)
+		}
+	})
+
 	t.Run("select all key-values", func(t *testing.T) {
 		var kvs []KeyValue
 		err := testDB.Select(&kvs, "ORDER BY `key`", map[string]any{})
@@ -182,7 +202,6 @@ func TestTransaction(t *testing.T) {
 		require.NotNil(t, insertedKV)
 		require.NotEqual(t, 0, insertedKV.ID)
 
-		// Verify the data was committed to the database
 		var retrievedKV KeyValue
 		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.transaction.commit",
@@ -209,16 +228,14 @@ func TestTransaction(t *testing.T) {
 
 			insertedKV = kv
 
-			// Force an error to trigger rollback
 			return fmt.Errorf("intentional error to trigger rollback")
 		})
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "intentional error to trigger rollback")
 		require.NotNil(t, insertedKV)
-		require.NotEqual(t, 0, insertedKV.ID) // ID was set during transaction
+		require.NotEqual(t, 0, insertedKV.ID)
 
-		// Verify the data was NOT committed to the database (rolled back)
 		var retrievedKV KeyValue
 		err = testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.transaction.rollback",
@@ -231,7 +248,6 @@ func TestTransaction(t *testing.T) {
 		var kv1, kv2 *KeyValue
 
 		err := testDB.Transaction(func(tx *DB) error {
-			// Insert first record
 			kv1 = &KeyValue{
 				Key:   "test.transaction.multi.1",
 				Value: "first record",
@@ -241,7 +257,6 @@ func TestTransaction(t *testing.T) {
 				return err
 			}
 
-			// Insert second record
 			kv2 = &KeyValue{
 				Key:   "test.transaction.multi.2",
 				Value: "second record",
@@ -251,7 +266,6 @@ func TestTransaction(t *testing.T) {
 				return err
 			}
 
-			// Verify we can select within the transaction
 			var kvs []KeyValue
 			err = tx.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 				"pattern": "test.transaction.multi.%",
@@ -274,7 +288,6 @@ func TestTransaction(t *testing.T) {
 		require.NotEqual(t, 0, kv2.ID)
 		require.NotEqual(t, kv1.ID, kv2.ID)
 
-		// Verify both records were committed
 		var kvs []KeyValue
 		err = testDB.Select(&kvs, "WHERE `key` LIKE $pattern ORDER BY `key`", map[string]any{
 			"pattern": "test.transaction.multi.%",
@@ -289,7 +302,6 @@ func TestTransaction(t *testing.T) {
 		var kv1, kv2 *KeyValue
 
 		err := testDB.Transaction(func(tx *DB) error {
-			// Insert first record
 			kv1 = &KeyValue{
 				Key:   "test.transaction.rollback.multi.1",
 				Value: "first record",
@@ -299,7 +311,6 @@ func TestTransaction(t *testing.T) {
 				return err
 			}
 
-			// Insert second record
 			kv2 = &KeyValue{
 				Key:   "test.transaction.rollback.multi.2",
 				Value: "second record",
@@ -309,14 +320,12 @@ func TestTransaction(t *testing.T) {
 				return err
 			}
 
-			// Force rollback after both inserts
 			return fmt.Errorf("rollback both operations")
 		})
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "rollback both operations")
 
-		// Verify neither record was committed
 		var kvs []KeyValue
 		err = testDB.Select(&kvs, "WHERE `key` LIKE $pattern", map[string]any{
 			"pattern": "test.transaction.rollback.multi.%",
@@ -328,7 +337,6 @@ func TestTransaction(t *testing.T) {
 	t.Run("transaction with panic triggers rollback", func(t *testing.T) {
 		var insertedKV *KeyValue
 
-		// Capture the panic and verify rollback occurred
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -349,17 +357,14 @@ func TestTransaction(t *testing.T) {
 
 				insertedKV = kv
 
-				// Trigger panic
 				panic("panic in transaction")
 			})
 
-			// This should not be reached due to panic
 			t.Fatal("Expected panic but transaction completed normally")
 		}()
 
 		require.NotNil(t, insertedKV)
 
-		// Verify the data was NOT committed due to panic rollback
 		var retrievedKV KeyValue
 		err := testDB.Select(&retrievedKV, "WHERE `key` = $key", map[string]any{
 			"key": "test.transaction.panic",
@@ -370,13 +375,11 @@ func TestTransaction(t *testing.T) {
 
 	t.Run("nested transactions not supported", func(t *testing.T) {
 		err := testDB.Transaction(func(tx *DB) error {
-			// Try to start another transaction within an existing one
 			return tx.Transaction(func(nestedTx *DB) error {
 				return nil
 			})
 		})
 
-		// This should fail since we're trying to begin a transaction on a *sql.Tx
 		require.Error(t, err)
 	})
 }
@@ -647,6 +650,35 @@ func TestDeleteRecords(t *testing.T) {
 		require.Len(t, deletedKVs, 0)
 	})
 
+	t.Run("delete records by slice of values", func(t *testing.T) {
+		testRecordPtrs := []*KeyValue{
+			{Key: "test.deleterecords.values.1", Value: "first record"},
+			{Key: "test.deleterecords.values.2", Value: "second record"},
+		}
+
+		for _, kv := range testRecordPtrs {
+			err := testDB.Insert(kv)
+			require.NoError(t, err)
+			require.NotEqual(t, 0, kv.ID)
+		}
+
+		testRecordValues := []KeyValue{
+			*testRecordPtrs[0],
+			*testRecordPtrs[1],
+		}
+
+		rowsAffected, err := testDB.DeleteRecords(testRecordValues)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), rowsAffected)
+
+		var deletedKVs []KeyValue
+		err = testDB.Select(&deletedKVs, "WHERE `key` LIKE $pattern", map[string]any{
+			"pattern": "test.deleterecords.values.%",
+		})
+		require.NoError(t, err)
+		require.Len(t, deletedKVs, 0)
+	})
+
 	t.Run("delete empty slice returns zero rows affected", func(t *testing.T) {
 		emptyRecords := []*KeyValue{}
 
@@ -681,7 +713,6 @@ func TestDeleteRecords(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEqual(t, 0, validKV.ID)
 
-		// Create mixed slice with valid and invalid records
 		type NoIDStruct struct {
 			Key   string `db:"key"`
 			Value string `db:"value"`
