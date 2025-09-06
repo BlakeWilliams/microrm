@@ -13,11 +13,16 @@ type modelType struct {
 	// baseType is the type passed directly to DB methods, e.g. *[]User or []*User
 	baseType reflect.Type
 
+	idFieldIndex        int
+	createdAtFieldIndex int
+	updatedAtFieldIndex int
+
 	numField          int
 	isSliceOfPointers bool
 	isStructPointer   bool
 	isStruct          bool
 	isValidSlice      bool
+	columns           []reflect.StructField
 }
 
 var errInvalidType = fmt.Errorf("destination must be a struct, or a slice of structs")
@@ -43,7 +48,7 @@ func newModelType(t any) (*modelType, error) {
 		tableName = snake_case(elemType.Name())
 	}
 
-	return &modelType{
+	model := &modelType{
 		tableName:         tableName,
 		elemType:          elemType,
 		baseType:          baseType,
@@ -52,7 +57,45 @@ func newModelType(t any) (*modelType, error) {
 		isStructPointer:   determineIsStructPointer(baseType),
 		isStruct:          determineIsStruct(baseType),
 		isValidSlice:      determineIsValidSlice(baseType, elemType),
-	}, nil
+		columns:           make([]reflect.StructField, 0, elemType.NumField()),
+
+		// indexes will get replaced with real values if found in the `findColumns` call below
+		idFieldIndex:        -1,
+		createdAtFieldIndex: -1,
+		updatedAtFieldIndex: -1,
+	}
+
+	findColumns(model, elemType)
+
+	return model, nil
+}
+
+func findColumns(m *modelType, elem reflect.Type) {
+	for i := 0; i < elem.NumField(); i++ {
+		field := elem.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		// Skip fields with db:"-", since they should be ignored
+		if field.Tag.Get("db") == "-" {
+			continue
+		}
+
+		if (field.Tag.Get("db") == "" && (field.Name == "ID")) || field.Tag.Get("db") == "id" {
+			m.idFieldIndex = i
+		}
+
+		if (field.Tag.Get("db") == "" && (field.Name == "CreatedAt")) || field.Tag.Get("db") == "created_at" {
+			m.createdAtFieldIndex = i
+		}
+
+		if (field.Tag.Get("db") == "" && (field.Name == "UpdatedAt")) || field.Tag.Get("db") == "updated_at" {
+			m.updatedAtFieldIndex = i
+		}
+
+		m.columns = append(m.columns, field)
+	}
 }
 
 func (m *modelType) FieldType(i int) reflect.StructField {

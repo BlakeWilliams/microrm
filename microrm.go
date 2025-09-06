@@ -180,7 +180,7 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 	}
 
 	// Attempt to set the ID field if it exists
-	idField, ok := d.findIDField(concreteValue(dest))
+	idField, ok := d.findIDField(concreteValue(dest), model)
 	if ok && idField.IsValid() && idField.CanSet() {
 		switch idField.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -297,7 +297,7 @@ func (d *DB) DeleteRecord(ctx context.Context, dest any) (int64, error) {
 	}
 
 	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", model.tableName)
-	idField, ok := d.findIDField(concreteValue(dest))
+	idField, ok := d.findIDField(concreteValue(dest), model)
 	if !ok {
 		return 0, fmt.Errorf("struct does not have an ID field")
 	}
@@ -315,14 +315,12 @@ func (d *DB) DeleteRecord(ctx context.Context, dest any) (int64, error) {
 	return n, nil
 }
 
-func (d *DB) findIDField(destValue reflect.Value) (reflect.Value, bool) {
-	for i := 0; i < destValue.NumField(); i++ {
-		field := destValue.Type().Field(i)
-		if field.Name == "ID" || field.Name == "Id" || field.Tag.Get("db") == "id" {
-			return destValue.Field(i), true
-		}
+func (d *DB) findIDField(destValue reflect.Value, model *modelType) (reflect.Value, bool) {
+	if model.idFieldIndex < 0 {
+		return reflect.Value{}, false
 	}
-	return reflect.Value{}, false
+
+	return destValue.Field(model.idFieldIndex), true
 }
 
 // Update updates records in the database based on the provided struct type,
@@ -394,7 +392,7 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 		return fmt.Errorf("no updates provided")
 	}
 
-	idField, ok := d.findIDField(concreteValue(dest))
+	idField, ok := d.findIDField(concreteValue(dest), model)
 	if !ok {
 		return fmt.Errorf("struct does not have an ID field")
 	}
