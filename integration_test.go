@@ -20,6 +20,20 @@ type KeyValue struct {
 	Value string `db:"value"`
 }
 
+func (k *KeyValue) TableName() string {
+	return "key_values"
+}
+
+type CustomIDStruct struct {
+	CustomID int    `db:"id"`
+	Key      string `db:"key"`
+	Value    string `db:"value"`
+}
+
+func (c *CustomIDStruct) TableName() string {
+	return "key_values"
+}
+
 func TestMain(m *testing.M) {
 	host := getEnv("MYSQL_HOST", "localhost")
 	port := getEnv("MYSQL_PORT", "3306")
@@ -570,14 +584,6 @@ func TestDeleteRecord(t *testing.T) {
 	})
 
 	t.Run("delete record with custom db tag for ID", func(t *testing.T) {
-		type CustomIDStruct struct {
-			CustomID int    `db:"id"`
-			Key      string `db:"key"`
-			Value    string `db:"value"`
-		}
-
-		testDB.MapNameToTable("CustomIDStruct", "key_values")
-
 		kv := &KeyValue{
 			Key:   "test.deleterecord.customid",
 			Value: "custom ID test",
@@ -762,14 +768,6 @@ func TestDeleteRecords(t *testing.T) {
 	})
 
 	t.Run("delete records with custom db tag for ID", func(t *testing.T) {
-		type CustomIDStruct struct {
-			CustomID int    `db:"id"`
-			Key      string `db:"key"`
-			Value    string `db:"value"`
-		}
-
-		testDB.MapNameToTable("CustomIDStruct", "key_values")
-
 		testKVs := []*KeyValue{
 			{Key: "test.deleterecords.customid.1", Value: "custom ID test 1"},
 			{Key: "test.deleterecords.customid.2", Value: "custom ID test 2"},
@@ -951,14 +949,6 @@ func TestUpdateRecord(t *testing.T) {
 	})
 
 	t.Run("update with custom db tag for ID", func(t *testing.T) {
-		type CustomIDStruct struct {
-			CustomID int    `db:"id"`
-			Key      string `db:"key"`
-			Value    string `db:"value"`
-		}
-
-		testDB.MapNameToTable("CustomIDStruct", "key_values")
-
 		kv := &KeyValue{
 			Key:   "test.updaterecord.customid",
 			Value: "original value",
@@ -1035,7 +1025,6 @@ func setupTestDatabase(rootDSN, dsn, database string) error {
 	}
 
 	testDB = New(db)
-	testDB.MapNameToTable("KeyValue", "key_values")
 
 	if err = setupTestTables(db); err != nil {
 		testDB.Close()

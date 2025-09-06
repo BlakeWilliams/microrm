@@ -22,7 +22,7 @@ type modelType struct {
 
 var errInvalidType = fmt.Errorf("destination must be a struct, or a slice of structs")
 
-func newModelType(t any, tableMap map[string]string) (*modelType, error) {
+func newModelType(t any) (*modelType, error) {
 	baseType := reflect.TypeOf(t)
 	elemType := baseType
 
@@ -35,8 +35,10 @@ func newModelType(t any, tableMap map[string]string) (*modelType, error) {
 	}
 
 	var tableName string
-	if name, ok := tableMap[elemType.Name()]; ok {
-		tableName = name
+	instance := reflect.New(elemType)
+	if instance.Type().Implements(reflect.TypeOf((*TableNamer)(nil)).Elem()) {
+		tableNamer := instance.Interface().(TableNamer)
+		tableName = tableNamer.TableName()
 	} else {
 		tableName = snake_case(elemType.Name())
 	}

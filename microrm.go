@@ -32,17 +32,19 @@ type (
 		modelTypeCache sync.Map
 		mu             sync.Mutex
 	}
+
+	// TableNamer is an interface models can implement to override the default
+	// `snake_case`d, pluralized table name.
+	//
+	// *Warning*: This value will be cached, so do not return dynamic values.
+	TableNamer interface {
+		TableName() string
+	}
 )
 
 // New initializes a new DB instance with the provided sql.DB connection.
 func New(db *sql.DB) *DB {
 	return &DB{db: db, nameMap: make(map[string]string)}
-}
-
-func (d *DB) MapNameToTable(structName, tableName string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.nameMap[structName] = tableName
 }
 
 // newModelType creates a new modelType for the given destination
@@ -53,7 +55,7 @@ func (d *DB) newModelType(dest any) (*modelType, error) {
 		return cached.(*modelType), nil
 	}
 
-	newModel, err := newModelType(dest, d.nameMap)
+	newModel, err := newModelType(dest)
 
 	if err != nil {
 		return nil, err
