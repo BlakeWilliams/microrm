@@ -74,7 +74,7 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [x] Support for `delete`ing specific structs via `DB.DeleteRecord`.
 - [x] Support for `delete`ing multiple structs via `DB.DeleteRecords`.
 - [x] Support for transactions via `DB.Transaction`
-- [ ] Updates `created_at` and `updated_at` fields automatically.
+- [x] Updates `created_at` and `updated_at` fields automatically.
 - [ ] Support for standard DB `Exec` with named parameters.
 - [ ] Support for standard DB `Query` with named parameters.
 - [ ] Pluralize table names by default
