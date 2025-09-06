@@ -241,7 +241,7 @@ func TestDB_generateSelect(t *testing.T) {
 
 	actualSQL, actualFields := db.generateSelect(model)
 
-	expectedSQL := "SELECT `test_struct`.`id`, `test_struct`.`name`, `test_struct`.`email_address`, `test_struct`.`age` FROM test_struct"
+	expectedSQL := "SELECT `test_structs`.`id`, `test_structs`.`name`, `test_structs`.`email_address`, `test_structs`.`age` FROM test_structs"
 	expectedFields := []string{"ID", "Name", "Email", "Age"}
 
 	require.Equal(t, expectedSQL, actualSQL)

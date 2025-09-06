@@ -45,7 +45,7 @@ func newModelType(t any) (*modelType, error) {
 		tableNamer := instance.Interface().(TableNamer)
 		tableName = tableNamer.TableName()
 	} else {
-		tableName = snake_case(elemType.Name())
+		tableName = pluralize(snake_case(elemType.Name()))
 	}
 
 	model := &modelType{

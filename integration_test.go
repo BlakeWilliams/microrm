@@ -23,10 +23,6 @@ type KeyValue struct {
 	UpdatedAt time.Time `db:"updated_at"`
 }
 
-func (k *KeyValue) TableName() string {
-	return "key_values"
-}
-
 type CustomIDStruct struct {
 	CustomID int    `db:"id"`
 	Key      string `db:"key"`
