@@ -1,7 +1,6 @@
 package microrm
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -237,15 +236,12 @@ func TestDB_generateSelect(t *testing.T) {
 
 	db := &DB{}
 
-	model := &modelType{
-		tableName: "users",
-		elemType:  reflect.TypeOf(TestStruct{}),
-		numField:  4,
-	}
+	model, err := newModelType(TestStruct{})
+	require.NoError(t, err)
 
 	actualSQL, actualFields := db.generateSelect(model)
 
-	expectedSQL := "SELECT `users`.`id`, `users`.`name`, `users`.`email_address`, `users`.`age` FROM users"
+	expectedSQL := "SELECT `test_struct`.`id`, `test_struct`.`name`, `test_struct`.`email_address`, `test_struct`.`age` FROM test_struct"
 	expectedFields := []string{"ID", "Name", "Email", "Age"}
 
 	require.Equal(t, expectedSQL, actualSQL)

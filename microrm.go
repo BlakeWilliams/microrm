@@ -30,7 +30,6 @@ type (
 		db             queryable
 		nameMap        map[string]string
 		modelTypeCache sync.Map
-		mu             sync.Mutex
 	}
 
 	// TableNamer is an interface models can implement to override the default
@@ -544,17 +543,13 @@ func (d *DB) replaceNames(rawSql string, args Args) (string, []any, error) {
 func (d *DB) generateSelect(model *modelType) (string, []string) {
 	columns := make([]string, 0, model.numField)
 	var columnStr strings.Builder
-	for i := 0; i < model.numField; i++ {
-		field := model.FieldType(i)
-		if !field.IsExported() {
-			continue
-		}
 
-		columnName := field.Tag.Get("db")
+	for _, col := range model.columns {
+		columnName := col.Tag.Get("db")
 		if columnName == "" {
-			columnName = snake_case(field.Name)
+			columnName = snake_case(col.Name)
 		}
-		columns = append(columns, field.Name)
+		columns = append(columns, col.Name)
 		if len(columns) > 1 {
 			columnStr.WriteString(", ")
 		}
