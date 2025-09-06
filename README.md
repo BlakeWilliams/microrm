@@ -33,13 +33,16 @@ newUser := User{Name: "Alice"}
 err = db.Insert(ctx, &newUser)
 fmt.Println("New user ID:", newUser.ID) // ID's are automatically populated after inserts
 
-// Update records
+// Update a specific record by ID
+user := &User{ID: 1, Name: "Alice"}
+err = db.UpdateRecord(ctx, user, microrm.Updates{"name": "Alicia"})
+// The struct is automatically updated in memory
+fmt.Println("Updated user name:", user.Name)
+
+// Update arbitrary rows
 rowsAffected, err := db.Update(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alice"}, microrm.Updates{"name": "Alicia"})
 fmt.Println("Updated rows:", rowsAffected)
 
-// Delete records
-rowsAffected, err = db.Delete(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alicia"})
-fmt.Println("Deleted rows:", rowsAffected)
 
 // Delete a specific record (uses ID)
 user := User{ID: 1, Name: "Alice"}
@@ -51,6 +54,10 @@ users := []*User{
     {ID: 2, Name: "Bob"},
 }
 rowsAffected, err = db.DeleteRecords(ctx, users)
+
+// Delete arbitrary records
+rowsAffected, err = db.Delete(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alicia"})
+fmt.Println("Deleted rows:", rowsAffected)
 ```
 
 ### Escaping $

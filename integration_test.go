@@ -856,6 +856,167 @@ func TestUpdate(t *testing.T) {
 	})
 }
 
+func TestUpdateRecord(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("update single column by ID", func(t *testing.T) {
+		orig := &KeyValue{Key: "test.updaterecord.single", Value: "before"}
+		require.NoError(t, testDB.Insert(ctx, orig))
+		require.NotZero(t, orig.ID)
+		originalID := orig.ID
+
+		err := testDB.UpdateRecord(ctx, orig, Updates{"Value": "after"})
+		require.NoError(t, err)
+
+		require.Equal(t, "after", orig.Value)
+		require.Equal(t, originalID, orig.ID)
+
+		var kv KeyValue
+		err = testDB.Select(ctx, &kv, "WHERE id = $id", Args{"id": originalID})
+		require.NoError(t, err)
+		require.Equal(t, "after", kv.Value)
+		require.Equal(t, "test.updaterecord.single", kv.Key)
+		require.Equal(t, originalID, kv.ID)
+	})
+
+	t.Run("update multiple columns by ID", func(t *testing.T) {
+		orig := &KeyValue{Key: "test.updaterecord.multi", Value: "before"}
+		require.NoError(t, testDB.Insert(ctx, orig))
+		require.NotZero(t, orig.ID)
+		originalID := orig.ID
+
+		err := testDB.UpdateRecord(ctx, orig, Updates{"Key": "test.updaterecord.multi.new", "Value": "after"})
+		require.NoError(t, err)
+
+		require.Equal(t, "test.updaterecord.multi.new", orig.Key)
+		require.Equal(t, "after", orig.Value)
+		require.Equal(t, originalID, orig.ID)
+
+		var kv KeyValue
+		err = testDB.Select(ctx, &kv, "WHERE id = $id", Args{"id": originalID})
+		require.NoError(t, err)
+		require.Equal(t, "test.updaterecord.multi.new", kv.Key)
+		require.Equal(t, "after", kv.Value)
+		require.Equal(t, originalID, kv.ID)
+	})
+
+	t.Run("update with no changes returns success", func(t *testing.T) {
+		orig := &KeyValue{Key: "test.updaterecord.nochange", Value: "unchanged"}
+		require.NoError(t, testDB.Insert(ctx, orig))
+		require.NotZero(t, orig.ID)
+
+		err := testDB.UpdateRecord(ctx, orig, Updates{"Value": "unchanged"})
+		require.NoError(t, err)
+	})
+
+	t.Run("update record without ID field should error", func(t *testing.T) {
+		type NoIDStruct struct {
+			Key   string `db:"key"`
+			Value string `db:"value"`
+		}
+
+		noID := &NoIDStruct{
+			Key:   "test.no.id",
+			Value: "no ID field",
+		}
+
+		err := testDB.UpdateRecord(ctx, noID, Updates{"Value": "new value"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "struct does not have an ID field")
+	})
+
+	t.Run("update with empty updates should error", func(t *testing.T) {
+		orig := &KeyValue{Key: "test.updaterecord.empty", Value: "value"}
+		require.NoError(t, testDB.Insert(ctx, orig))
+
+		err := testDB.UpdateRecord(ctx, orig, Updates{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "no updates provided")
+	})
+
+	t.Run("update with invalid column returns error", func(t *testing.T) {
+		orig := &KeyValue{Key: "test.updaterecord.invalidcol", Value: "before"}
+		require.NoError(t, testDB.Insert(ctx, orig))
+
+		err := testDB.UpdateRecord(ctx, orig, Updates{"not_a_column": "x"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "cannot update missing or unexported field: not_a_column")
+	})
+
+	t.Run("update non-existent record returns zero rows", func(t *testing.T) {
+		nonExistent := &KeyValue{ID: 99999, Key: "fake", Value: "fake"}
+
+		err := testDB.UpdateRecord(ctx, nonExistent, Updates{"Value": "new value"})
+		require.NoError(t, err)
+	})
+
+	t.Run("update with custom db tag for ID", func(t *testing.T) {
+		type CustomIDStruct struct {
+			CustomID int    `db:"id"`
+			Key      string `db:"key"`
+			Value    string `db:"value"`
+		}
+
+		testDB.MapNameToTable("CustomIDStruct", "key_values")
+
+		kv := &KeyValue{
+			Key:   "test.updaterecord.customid",
+			Value: "original value",
+		}
+		err := testDB.Insert(ctx, kv)
+		require.NoError(t, err)
+		require.NotEqual(t, 0, kv.ID)
+
+		customKV := &CustomIDStruct{
+			CustomID: kv.ID,
+			Key:      "test.updaterecord.customid",
+			Value:    "original value",
+		}
+
+		err = testDB.UpdateRecord(ctx, customKV, Updates{"Value": "updated value"})
+		require.NoError(t, err)
+
+		require.Equal(t, "updated value", customKV.Value)
+
+		var updatedKV KeyValue
+		err = testDB.Select(ctx, &updatedKV, "WHERE id = $id", Args{"id": kv.ID})
+		require.NoError(t, err)
+		require.Equal(t, "updated value", updatedKV.Value)
+	})
+
+	t.Run("update with non-pointer struct should error", func(t *testing.T) {
+		kv := KeyValue{ID: 1, Key: "test", Value: "value"}
+
+		err := testDB.UpdateRecord(ctx, kv, Updates{"Value": "new value"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "destination must be a pointer to a struct")
+	})
+
+	t.Run("update ID field should work", func(t *testing.T) {
+		orig := &KeyValue{Key: "test.updaterecord.updateid", Value: "value"}
+		require.NoError(t, testDB.Insert(ctx, orig))
+		require.NotZero(t, orig.ID)
+		originalID := orig.ID
+
+		newID := originalID + 1000
+		err := testDB.UpdateRecord(ctx, orig, Updates{"ID": newID})
+		require.NoError(t, err)
+
+		require.Equal(t, newID, orig.ID)
+
+		var oldKV KeyValue
+		err = testDB.Select(ctx, &oldKV, "WHERE id = $id", Args{"id": originalID})
+		require.Error(t, err)
+		require.Equal(t, sql.ErrNoRows, err)
+
+		var newKV KeyValue
+		err = testDB.Select(ctx, &newKV, "WHERE id = $id", Args{"id": newID})
+		require.NoError(t, err)
+		require.Equal(t, "test.updaterecord.updateid", newKV.Key)
+		require.Equal(t, "value", newKV.Value)
+	})
+}
+
 func setupTestDatabase(rootDSN, dsn, database string) error {
 	rootDB, err := sql.Open("mysql", rootDSN)
 	if err != nil {

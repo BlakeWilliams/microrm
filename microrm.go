@@ -375,6 +375,59 @@ func (d *DB) Update(ctx context.Context, structType any, sql string, args Args, 
 	return rows, nil
 }
 
+func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error {
+	model, err := d.newModelType(dest)
+	if err != nil {
+		return fmt.Errorf("failed to update data: %w", err)
+	}
+	if !model.isStructPointer {
+		return fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
+	}
+	if len(updates) == 0 {
+		return fmt.Errorf("no updates provided")
+	}
+
+	idField, ok := d.findIDField(concreteValue(dest))
+	if !ok {
+		return fmt.Errorf("struct does not have an ID field")
+	}
+
+	var setClauses strings.Builder
+	updateValues := make([]any, 0, len(updates))
+
+	for fieldName, val := range updates {
+		field, ok := model.elemType.FieldByName(fieldName)
+		if !ok || !field.IsExported() {
+			return fmt.Errorf("cannot update missing or unexported field: %s", fieldName)
+		}
+		col := field.Tag.Get("db")
+		if col == "" {
+			col = snake_case(field.Name)
+		}
+		if setClauses.Len() > 0 {
+			setClauses.WriteString(", ")
+		}
+		setClauses.WriteString(fmt.Sprintf("`%s` = ?", col))
+		updateValues = append(updateValues, val)
+	}
+
+	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", model.tableName, setClauses.String())
+	updateValues = append(updateValues, idField.Interface())
+	_, err = d.db.ExecContext(ctx, updateSQL, updateValues...)
+	if err != nil {
+		return fmt.Errorf("failed to execute update: %w", err)
+	}
+
+	for fieldName, val := range updates {
+		field := concreteValue(dest).FieldByName(fieldName)
+		if field.IsValid() && field.CanSet() {
+			field.Set(reflect.ValueOf(val))
+		}
+	}
+
+	return nil
+}
+
 // Transaction executes the provided function within a database transaction. If
 // the function returns an error, the transaction is rolled back, otherwise it
 // is committed.
