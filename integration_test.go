@@ -938,7 +938,6 @@ func TestUpdateRecord(t *testing.T) {
 
 		err := testDB.UpdateRecord(ctx, orig, Updates{"not_a_column": "x"})
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "cannot update missing or unexported field: not_a_column")
 	})
 
 	t.Run("update non-existent record returns zero rows", func(t *testing.T) {

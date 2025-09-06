@@ -146,7 +146,7 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 	insertColumnData := make([]any, 0, model.numField)
 	var insertValuePlaceholders strings.Builder
 
-	for i := 0; i < model.numField; i++ {
+	for i := range model.numField {
 		field := model.FieldType(i)
 		if !field.IsExported() {
 			continue
@@ -247,7 +247,7 @@ func (d *DB) DeleteRecords(ctx context.Context, dest any) (int64, error) {
 	err = d.Transaction(ctx, func(tx *DB) error {
 		// For []*T, items are already pointers so we can pass them directly
 		if model.isSliceOfPointers {
-			for i := 0; i < destValue.Len(); i++ {
+			for i := range destValue.Len() {
 				item := destValue.Index(i).Interface()
 				nn, err := tx.DeleteRecord(ctx, item)
 				if err != nil {
@@ -257,7 +257,7 @@ func (d *DB) DeleteRecords(ctx context.Context, dest any) (int64, error) {
 			}
 		} else {
 			// For []T, we need to take address but can optimize by reusing addressable value
-			for i := 0; i < destValue.Len(); i++ {
+			for i := range destValue.Len() {
 				item := destValue.Index(i)
 				// Create addressable copy only once per item
 				addressableItem := reflect.New(item.Type())
@@ -343,20 +343,21 @@ func (d *DB) Update(ctx context.Context, structType any, sql string, args Args, 
 	var setClauses strings.Builder
 	updateValues := make([]any, 0, len(updates))
 
-	for fieldName, val := range updates {
-		field, ok := model.elemType.FieldByName(fieldName)
-		if !ok || !field.IsExported() {
-			return 0, fmt.Errorf("cannot update missing or unexported field: %s", fieldName)
+	for _, col := range model.columns {
+		if _, ok := updates[col.Name]; !ok {
+			continue
 		}
-		col := field.Tag.Get("db")
-		if col == "" {
-			col = snake_case(field.Name)
+
+		name := col.Tag.Get("db")
+		if name == "" {
+			name = snake_case(col.Name)
 		}
+
 		if setClauses.Len() > 0 {
 			setClauses.WriteString(", ")
 		}
-		setClauses.WriteString(fmt.Sprintf("`%s` = ?", col))
-		updateValues = append(updateValues, val)
+		setClauses.WriteString(fmt.Sprintf("`%s` = ?", name))
+		updateValues = append(updateValues, updates[col.Name])
 	}
 
 	fragment, whereArgs, err := d.replaceNames(sql, args)
@@ -399,20 +400,20 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 	var setClauses strings.Builder
 	updateValues := make([]any, 0, len(updates))
 
-	for fieldName, val := range updates {
-		field, ok := model.elemType.FieldByName(fieldName)
-		if !ok || !field.IsExported() {
-			return fmt.Errorf("cannot update missing or unexported field: %s", fieldName)
+	for _, col := range model.columns {
+		if _, ok := updates[col.Name]; !ok {
+			continue
 		}
-		col := field.Tag.Get("db")
-		if col == "" {
-			col = snake_case(field.Name)
+
+		name := col.Tag.Get("db")
+		if name == "" {
+			name = snake_case(col.Name)
 		}
 		if setClauses.Len() > 0 {
 			setClauses.WriteString(", ")
 		}
-		setClauses.WriteString(fmt.Sprintf("`%s` = ?", col))
-		updateValues = append(updateValues, val)
+		setClauses.WriteString(fmt.Sprintf("`%s` = ?", name))
+		updateValues = append(updateValues, updates[col.Name])
 	}
 
 	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", model.tableName, setClauses.String())
