@@ -37,6 +37,18 @@ func (c *CustomIDStruct) TableName() string {
 	return "key_values"
 }
 
+type NullTimeKeyValue struct {
+	ID        int          `db:"id"`
+	Key       string       `db:"key"`
+	Value     string       `db:"value"`
+	CreatedAt sql.NullTime `db:"created_at"`
+	UpdatedAt sql.NullTime `db:"updated_at"`
+}
+
+func (n *NullTimeKeyValue) TableName() string {
+	return "key_values"
+}
+
 func requireKVEqual(t *testing.T, expected, actual KeyValue, msgAndArgs ...interface{}) {
 	require.Equal(t, expected.ID, actual.ID, msgAndArgs...)
 	require.Equal(t, expected.Key, actual.Key, msgAndArgs...)
@@ -1113,6 +1125,85 @@ func TestUpdateRecord(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "test.updaterecord.updateid", newKV.Key)
 		require.Equal(t, "value", newKV.Value)
+	})
+}
+
+func TestSqlNullTime(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("insert with automatic timestamp setting", func(t *testing.T) {
+		beforeInsert := time.Now()
+
+		nullTimeKV := &NullTimeKeyValue{
+			Key:   "test.sql.nulltime.insert",
+			Value: "test value",
+		}
+
+		require.False(t, nullTimeKV.CreatedAt.Valid)
+		require.False(t, nullTimeKV.UpdatedAt.Valid)
+
+		err := testDB.Insert(ctx, nullTimeKV)
+		require.NoError(t, err)
+		require.NotZero(t, nullTimeKV.ID)
+
+		require.True(t, nullTimeKV.CreatedAt.Valid)
+		require.True(t, nullTimeKV.UpdatedAt.Valid)
+
+		afterInsert := time.Now().Add(time.Second)
+
+		require.True(t, nullTimeKV.CreatedAt.Time.After(beforeInsert))
+		require.True(t, nullTimeKV.CreatedAt.Time.Before(afterInsert))
+		require.True(t, nullTimeKV.UpdatedAt.Time.After(beforeInsert))
+		require.True(t, nullTimeKV.UpdatedAt.Time.Before(afterInsert))
+
+		// Verify data was saved to database correctly
+		var dbKV NullTimeKeyValue
+		err = testDB.Select(ctx, &dbKV, "WHERE id = $id", Args{"id": nullTimeKV.ID})
+		require.NoError(t, err)
+		require.Equal(t, nullTimeKV.Key, dbKV.Key)
+		require.Equal(t, nullTimeKV.Value, dbKV.Value)
+		require.True(t, dbKV.CreatedAt.Valid)
+		require.True(t, dbKV.UpdatedAt.Valid)
+		require.WithinDuration(t, nullTimeKV.CreatedAt.Time, dbKV.CreatedAt.Time, 2*time.Second)
+		require.WithinDuration(t, nullTimeKV.UpdatedAt.Time, dbKV.UpdatedAt.Time, 2*time.Second)
+	})
+
+	t.Run("update with automatic UpdatedAt setting", func(t *testing.T) {
+		nullTimeKV := &NullTimeKeyValue{
+			Key:   "test.sql.nulltime.update",
+			Value: "initial value",
+		}
+
+		err := testDB.Insert(ctx, nullTimeKV)
+		require.NoError(t, err)
+		originalID := nullTimeKV.ID
+		originalCreatedAt := nullTimeKV.CreatedAt.Time
+		originalUpdatedAt := nullTimeKV.UpdatedAt.Time
+
+		time.Sleep(time.Second)
+
+		beforeUpdate := time.Now()
+
+		err = testDB.UpdateRecord(ctx, nullTimeKV, Updates{"Value": "updated value"})
+		require.NoError(t, err)
+
+		afterUpdate := time.Now().Add(time.Second)
+
+		require.Equal(t, originalID, nullTimeKV.ID)
+		require.Equal(t, "updated value", nullTimeKV.Value)
+		require.True(t, nullTimeKV.CreatedAt.Valid)
+		require.True(t, nullTimeKV.UpdatedAt.Valid)
+		require.WithinDuration(t, originalCreatedAt, nullTimeKV.CreatedAt.Time, time.Second)
+		require.True(t, nullTimeKV.UpdatedAt.Time.After(beforeUpdate))
+		require.True(t, nullTimeKV.UpdatedAt.Time.Before(afterUpdate))
+		require.True(t, nullTimeKV.UpdatedAt.Time.After(originalUpdatedAt))
+
+		var dbKV NullTimeKeyValue
+		err = testDB.Select(ctx, &dbKV, "WHERE id = $id", Args{"id": originalID})
+		require.NoError(t, err)
+		require.Equal(t, "updated value", dbKV.Value)
+		require.WithinDuration(t, originalCreatedAt, dbKV.CreatedAt.Time, 2*time.Second)
+		require.WithinDuration(t, nullTimeKV.UpdatedAt.Time, dbKV.UpdatedAt.Time, 2*time.Second)
 	})
 }
 

@@ -330,7 +330,7 @@ func (d *DB) findIDField(destValue reflect.Value, model *modelType) (reflect.Val
 // the table to update.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) Update(ctx context.Context, structType any, sql string, args Args, updates Updates) (int64, error) {
+func (d *DB) Update(ctx context.Context, structType any, queryFragment string, args Args, updates Updates) (int64, error) {
 	model, err := d.newModelType(structType)
 	if err != nil {
 		return 0, fmt.Errorf("failed to update data: %w", err)
@@ -342,10 +342,21 @@ func (d *DB) Update(ctx context.Context, structType any, sql string, args Args, 
 		return 0, fmt.Errorf("no updates provided")
 	}
 
+	now := time.Now().UTC()
 	if model.updatedAtFieldIndex >= 0 {
-		// copy the map so we can append `UpdatedAt`
 		updates = maps.Clone(updates)
-		updates[model.elemType.Field(model.updatedAtFieldIndex).Name] = time.Now().UTC()
+		updateField := model.elemType.Field(model.updatedAtFieldIndex)
+
+		switch updateField.Type.String() {
+		case "time.Time":
+			updates[updateField.Name] = now
+		case "*time.Time":
+			updates[updateField.Name] = &now
+		case "sql.NullTime":
+			updates[updateField.Name] = sql.NullTime{Time: now, Valid: true}
+		default:
+			return 0, fmt.Errorf("unsupported UpdatedAt field type: %s", updateField.Type.String())
+		}
 	}
 
 	var setClauses strings.Builder
@@ -368,7 +379,7 @@ func (d *DB) Update(ctx context.Context, structType any, sql string, args Args, 
 		updateValues = append(updateValues, updates[col.Name])
 	}
 
-	fragment, whereArgs, err := d.replaceNames(sql, args)
+	fragment, whereArgs, err := d.replaceNames(queryFragment, args)
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare update query: %w", err)
 	}
@@ -400,34 +411,46 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 		return fmt.Errorf("no updates provided")
 	}
 
-	idField, ok := d.findIDField(concreteValue(dest), model)
+	value := concreteValue(dest)
+	idField, ok := d.findIDField(value, model)
 	if !ok {
 		return fmt.Errorf("struct does not have an ID field")
 	}
 
+	now := time.Now().UTC()
 	if model.updatedAtFieldIndex >= 0 {
-		// copy the map so we can append `UpdatedAt`
 		updates = maps.Clone(updates)
-		updates[model.elemType.Field(model.updatedAtFieldIndex).Name] = time.Now().UTC()
+		updateField := model.elemType.Field(model.updatedAtFieldIndex)
+
+		switch updateField.Type.String() {
+		case "time.Time":
+			updates[updateField.Name] = now
+		case "*time.Time":
+			updates[updateField.Name] = &now
+		case "sql.NullTime":
+			updates[updateField.Name] = sql.NullTime{Time: now, Valid: true}
+		default:
+			return fmt.Errorf("unsupported UpdatedAt field type: %s", updateField.Type.String())
+		}
 	}
 
 	var setClauses strings.Builder
 	updateValues := make([]any, 0, len(updates))
 
-	for _, col := range model.columns {
-		if _, ok := updates[col.Name]; !ok {
-			continue
+	for fieldName, val := range updates {
+		field, ok := model.elemType.FieldByName(fieldName)
+		if !ok || !field.IsExported() {
+			return fmt.Errorf("cannot update missing or unexported field: %s", fieldName)
 		}
-
-		name := col.Tag.Get("db")
-		if name == "" {
-			name = snake_case(col.Name)
+		col := field.Tag.Get("db")
+		if col == "" {
+			col = snake_case(field.Name)
 		}
 		if setClauses.Len() > 0 {
 			setClauses.WriteString(", ")
 		}
-		setClauses.WriteString(fmt.Sprintf("`%s` = ?", name))
-		updateValues = append(updateValues, updates[col.Name])
+		setClauses.WriteString(fmt.Sprintf("`%s` = ?", col))
+		updateValues = append(updateValues, val)
 	}
 
 	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", model.tableName, setClauses.String())
@@ -439,6 +462,13 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 
 	for fieldName, val := range updates {
 		field := concreteValue(dest).FieldByName(fieldName)
+		if field.IsValid() && field.CanSet() {
+			field.Set(reflect.ValueOf(val))
+		}
+	}
+
+	for fieldName, val := range updates {
+		field := value.FieldByName(fieldName)
 		if field.IsValid() && field.CanSet() {
 			field.Set(reflect.ValueOf(val))
 		}
@@ -596,10 +626,15 @@ func touchTimestamp(value reflect.Value, fieldIndex int, now time.Time) {
 	if fieldIndex < 0 {
 		return
 	}
+
 	timestamp := value.Field(fieldIndex)
-	if timestamp.Kind() == reflect.Pointer {
-		timestamp.Set(reflect.ValueOf(&now))
-	} else {
+
+	switch timestamp.Type().String() {
+	case "time.Time":
 		timestamp.Set(reflect.ValueOf(now))
+	case "*time.Time":
+		timestamp.Set(reflect.ValueOf(&now))
+	case "sql.NullTime":
+		timestamp.Set(reflect.ValueOf(sql.NullTime{Time: now, Valid: true}))
 	}
 }
