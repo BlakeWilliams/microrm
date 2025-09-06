@@ -11,23 +11,28 @@ import (
 	"unicode"
 )
 
-type Args = map[string]any
-type Updates = map[string]any
+type (
+	// Args is a map of named parameters to their values for SQL queries.
+	Args = map[string]any
 
-// enable using db or tx in the DB struct
-type queryable interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
+	// Updates is a map of struct fields to their values for Update* methods
+	Updates = map[string]any
 
-// DB represents a database connection and provides methods for executing queries and mapping results to structs.
-type DB struct {
-	db             queryable
-	nameMap        map[string]string
-	modelTypeCache sync.Map
-	mu             sync.Mutex
-}
+	// enable using db or tx in the DB struct
+	queryable interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+		ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	}
+
+	// DB is a wrapper around sql.DB that provides lightweight ORM-like functionality.
+	DB struct {
+		db             queryable
+		nameMap        map[string]string
+		modelTypeCache sync.Map
+		mu             sync.Mutex
+	}
+)
 
 // New initializes a new DB instance with the provided sql.DB connection.
 func New(db *sql.DB) *DB {
