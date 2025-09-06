@@ -47,7 +47,6 @@ fmt.Println("Updated user name:", user.Name)
 rowsAffected, err := db.Update(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alice"}, microrm.Updates{"name": "Alicia"})
 fmt.Println("Updated rows:", rowsAffected)
 
-
 // Delete a specific record (uses ID)
 user := User{ID: 1, Name: "Alice"}
 rowsAffected, err = db.DeleteRecord(ctx, &user)
@@ -73,7 +72,7 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [x] Support for `select`ing data via `DB.Select`.
 - [x] Support for `insert`ing data via `DB.Insert`.
 - [x] Support for `update`ing data via `DB.Update`.
-- [ ] Support for `update`ing specific structs via `DB.UpdateRecord`.
+- [x] Support for `update`ing specific structs via `DB.UpdateRecord`.
 - [x] Support for `delete`ing data via `DB.Delete`.
 - [x] Support for `delete`ing specific structs via `DB.DeleteRecord`.
 - [x] Support for `delete`ing multiple structs via `DB.DeleteRecords`.
