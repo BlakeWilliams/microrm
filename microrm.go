@@ -149,18 +149,9 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 	var insertValuePlaceholders strings.Builder
 
 	value := concreteValue(dest)
-	if model.createdAtFieldIndex >= 0 {
-		createdAt := value.Field(model.createdAtFieldIndex)
-		if createdAt.Interface().(time.Time).IsZero() {
-			createdAt.Set(reflect.ValueOf(time.Now().UTC()))
-		}
-	}
-	if model.updatedAtFieldIndex >= 0 {
-		updatedAt := value.Field(model.updatedAtFieldIndex)
-		if updatedAt.Interface().(time.Time).IsZero() {
-			updatedAt.Set(reflect.ValueOf(time.Now().UTC()))
-		}
-	}
+	now := time.Now().UTC()
+	touchTimestamp(value, model.createdAtFieldIndex, now)
+	touchTimestamp(value, model.updatedAtFieldIndex, now)
 
 	for _, col := range model.columns {
 		fieldValue := value.FieldByName(col.Name)
@@ -599,4 +590,16 @@ func snake_case(name string) string {
 	}
 
 	return snaked.String()
+}
+
+func touchTimestamp(value reflect.Value, fieldIndex int, now time.Time) {
+	if fieldIndex < 0 {
+		return
+	}
+	timestamp := value.Field(fieldIndex)
+	if timestamp.Kind() == reflect.Pointer {
+		timestamp.Set(reflect.ValueOf(&now))
+	} else {
+		timestamp.Set(reflect.ValueOf(now))
+	}
 }

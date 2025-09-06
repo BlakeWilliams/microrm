@@ -19,6 +19,7 @@ type KeyValue struct {
 	ID        int       `db:"id"`
 	Key       string    `db:"key"`
 	Value     string    `db:"value"`
+	CreatedAt time.Time `db:"created_at"`
 	UpdatedAt time.Time `db:"updated_at"`
 }
 
@@ -238,6 +239,34 @@ func TestInsert(t *testing.T) {
 		require.Equal(t, kv.ID, retrievedKV.ID)
 		require.Equal(t, kv.Key, retrievedKV.Key)
 		require.Equal(t, kv.Value, retrievedKV.Value)
+	})
+
+	t.Run("insert automatically sets CreatedAt field", func(t *testing.T) {
+		beforeInsert := time.Now().UTC()
+
+		kv := &KeyValue{
+			Key:   "test.insert.createdat",
+			Value: "test created at",
+		}
+
+		require.True(t, kv.CreatedAt.IsZero(), "CreatedAt should be zero before insert")
+
+		err := testDB.Insert(ctx, kv)
+		require.NoError(t, err)
+
+		afterInsert := time.Now().UTC()
+
+		beforeInsertTrunc := beforeInsert.Truncate(time.Second)
+		afterInsertTrunc := afterInsert.Add(time.Second).Truncate(time.Second) // Add 1 second buffer for timing
+
+		require.False(t, kv.CreatedAt.IsZero(), "CreatedAt should not be zero after insert")
+		require.True(t, kv.CreatedAt.After(beforeInsertTrunc) || kv.CreatedAt.Equal(beforeInsertTrunc))
+		require.True(t, kv.CreatedAt.Before(afterInsertTrunc) || kv.CreatedAt.Equal(afterInsertTrunc))
+
+		var retrievedKV KeyValue
+		err = testDB.Select(ctx, &retrievedKV, "WHERE `key` = $key", Args{"key": "test.insert.createdat"})
+		require.NoError(t, err)
+		require.WithinDuration(t, kv.CreatedAt, retrievedKV.CreatedAt, time.Second, "CreatedAt should match between struct and database within 1 second")
 	})
 }
 
@@ -1129,6 +1158,7 @@ func setupTestTables(db *sql.DB) error {
 			id INT AUTO_INCREMENT PRIMARY KEY,
 			` + "`key`" + ` VARCHAR(255) NOT NULL UNIQUE,
 			value TEXT NULL,
+			created_at TIMESTAMP NULL,
 			updated_at TIMESTAMP NULL
 		)
 	`
@@ -1152,7 +1182,7 @@ func insertTestData(db *sql.DB) error {
 	}
 
 	for _, kv := range keyValueData {
-		_, err := db.Exec("INSERT INTO key_values (`key`, value, updated_at) VALUES (?, ?, ?)", kv.key, kv.value, time.Now().UTC())
+		_, err := db.Exec("INSERT INTO key_values (`key`, value, created_at, updated_at) VALUES (?, ?, ?, ?)", kv.key, kv.value, time.Now().UTC(), time.Now().UTC())
 		if err != nil {
 			return fmt.Errorf("failed to insert key-value data: %w", err)
 		}
