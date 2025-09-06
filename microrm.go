@@ -5,9 +5,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
 
@@ -146,15 +148,26 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 	insertColumnData := make([]any, 0, model.numField)
 	var insertValuePlaceholders strings.Builder
 
-	for i := range model.numField {
-		field := model.FieldType(i)
-		if !field.IsExported() {
-			continue
+	value := concreteValue(dest)
+	if model.createdAtFieldIndex >= 0 {
+		createdAt := value.Field(model.createdAtFieldIndex)
+		if createdAt.Interface().(time.Time).IsZero() {
+			createdAt.Set(reflect.ValueOf(time.Now().UTC()))
 		}
+	}
+	if model.updatedAtFieldIndex >= 0 {
+		updatedAt := value.Field(model.updatedAtFieldIndex)
+		if updatedAt.Interface().(time.Time).IsZero() {
+			updatedAt.Set(reflect.ValueOf(time.Now().UTC()))
+		}
+	}
 
-		columnName := field.Tag.Get("db")
+	for _, col := range model.columns {
+		fieldValue := value.FieldByName(col.Name)
+
+		columnName := col.Tag.Get("db")
 		if columnName == "" {
-			columnName = snake_case(field.Name)
+			columnName = snake_case(col.Name)
 		}
 
 		if insertColumns.Len() > 0 {
@@ -162,7 +175,7 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 			insertValuePlaceholders.WriteString(", ")
 		}
 		insertColumns.WriteString("`" + columnName + "`")
-		insertColumnData = append(insertColumnData, reflect.ValueOf(dest).Elem().FieldByName(field.Name).Interface())
+		insertColumnData = append(insertColumnData, fieldValue.Interface())
 		insertValuePlaceholders.WriteString("?")
 	}
 
@@ -256,10 +269,8 @@ func (d *DB) DeleteRecords(ctx context.Context, dest any) (int64, error) {
 				n += nn
 			}
 		} else {
-			// For []T, we need to take address but can optimize by reusing addressable value
 			for i := range destValue.Len() {
 				item := destValue.Index(i)
-				// Create addressable copy only once per item
 				addressableItem := reflect.New(item.Type())
 				addressableItem.Elem().Set(item)
 
@@ -340,6 +351,12 @@ func (d *DB) Update(ctx context.Context, structType any, sql string, args Args, 
 		return 0, fmt.Errorf("no updates provided")
 	}
 
+	if model.updatedAtFieldIndex >= 0 {
+		// copy the map so we can append `UpdatedAt`
+		updates = maps.Clone(updates)
+		updates[model.elemType.Field(model.updatedAtFieldIndex).Name] = time.Now().UTC()
+	}
+
 	var setClauses strings.Builder
 	updateValues := make([]any, 0, len(updates))
 
@@ -395,6 +412,12 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 	idField, ok := d.findIDField(concreteValue(dest), model)
 	if !ok {
 		return fmt.Errorf("struct does not have an ID field")
+	}
+
+	if model.updatedAtFieldIndex >= 0 {
+		// copy the map so we can append `UpdatedAt`
+		updates = maps.Clone(updates)
+		updates[model.elemType.Field(model.updatedAtFieldIndex).Name] = time.Now().UTC()
 	}
 
 	var setClauses strings.Builder
