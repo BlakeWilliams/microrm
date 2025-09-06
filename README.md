@@ -17,6 +17,10 @@ db.MapNameToTable("User", "users") // map struct name to table name
 type User struct {
     ID   int    `db:"id"`
     Name string `db:"name"`
+
+    // Created and Updated at timestamps are automatically updated
+    UpdatedAt time.Time `db:"updated_at"`
+    CreatedAt time.Time `db:"created_at"`
 }
 
 // Select a single record
