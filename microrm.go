@@ -560,6 +560,7 @@ func (d *DB) generateSelect(model *modelType) (string, []string) {
 		if len(columns) > 1 {
 			columnStr.WriteString(", ")
 		}
+		columnStr.WriteString("`" + model.tableName + "`.")
 		columnStr.WriteString("`" + columnName + "`")
 	}
 

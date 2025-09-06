@@ -1,6 +1,7 @@
 package microrm
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -224,4 +225,29 @@ func TestDB_replaceNames(t *testing.T) {
 			require.Equal(t, tt.expectedArgs, actualArgs)
 		})
 	}
+}
+
+func TestDB_generateSelect(t *testing.T) {
+	type TestStruct struct {
+		ID    int    `db:"id"`
+		Name  string `db:"name"`
+		Email string `db:"email_address"`
+		Age   int    // no db tag, should use snake_case
+	}
+
+	db := &DB{}
+
+	model := &modelType{
+		tableName: "users",
+		elemType:  reflect.TypeOf(TestStruct{}),
+		numField:  4,
+	}
+
+	actualSQL, actualFields := db.generateSelect(model)
+
+	expectedSQL := "SELECT `users`.`id`, `users`.`name`, `users`.`email_address`, `users`.`age` FROM users"
+	expectedFields := []string{"ID", "Name", "Email", "Age"}
+
+	require.Equal(t, expectedSQL, actualSQL)
+	require.Equal(t, expectedFields, actualFields)
 }
