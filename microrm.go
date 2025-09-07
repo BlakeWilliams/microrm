@@ -104,19 +104,19 @@ func (d *DB) Close() error {
 }
 
 // Select executes a query and scans the result into the provided destination struct or slice of structs.
-func (d *DB) Select(ctx context.Context, dest any, rawSql string, rawArgs Args) error {
+func (d *DB) Select(ctx context.Context, dest any, queryFragment string, args Args) error {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return fmt.Errorf("failed to select data: %w", err)
 	}
 
-	fragment, args, err := d.replaceNames(rawSql, rawArgs)
+	fragment, queryArgs, err := d.replaceNames(queryFragment, args)
 	if err != nil {
 		return fmt.Errorf("failed to prepare query: %w", err)
 	}
 	selectFragment, structFields := d.generateSelect(model)
 	query := selectFragment + " " + fragment
-	rows, err := d.db.QueryContext(ctx, query, args...)
+	rows, err := d.db.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to execute Select query: %w", err)
 	}
@@ -235,20 +235,20 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 // pointer to a struct type representing the table to delete from.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) Delete(ctx context.Context, dest any, rawSql string, rawArgs Args) (int64, error) {
+func (d *DB) Delete(ctx context.Context, dest any, queryFragment string, args Args) (int64, error) {
 	model, err := d.newModelType(dest)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
 
-	fragment, args, err := d.replaceNames(rawSql, rawArgs)
+	fragment, queryArgs, err := d.replaceNames(queryFragment, args)
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare delete query: %w", err)
 	}
 
 	deleteSQL := fmt.Sprintf("DELETE FROM %s %s", model.tableName, fragment)
-	res, err := d.db.ExecContext(ctx, deleteSQL, args...)
+	res, err := d.db.ExecContext(ctx, deleteSQL, queryArgs...)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute delete: %w", err)
 	}
