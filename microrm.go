@@ -1,4 +1,15 @@
 // Package microrm is a lightweight, struct based ORM for Go that simplifies database interactions without completely abstracting SQL.
+//
+// All methods use named paramters instead of driver specific placeholders in
+// SQL queries/fragments. For example, a simple SELECT statement will look like:
+//
+// ```
+// var user User
+// db.Select(&user, "WHERE name = $name AND age > $age", micorm.Args{"name": "Fox", "age": 32})
+// ```
+//
+// This enables more readable queries while avoiding the boilerplate+pitfalls of
+// positional query arguments.
 package microrm
 
 import (
