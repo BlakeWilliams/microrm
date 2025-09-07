@@ -416,7 +416,9 @@ func (d *DB) Update(ctx context.Context, structType any, queryFragment string, a
 	return rows, nil
 }
 
-// Query executes a query with named parameters and returns the resulting rows.
+// Query calls the underlying sql.DB Query method, but uses named parameters
+// like other microrm methods. Query returns sql.Rows, which the caller is
+// responsible for closing.
 func (d *DB) Query(ctx context.Context, sql string, args map[string]any) (*sql.Rows, error) {
 	sql, argSlice, err := d.replaceNames(sql, args)
 	if err != nil {
@@ -425,7 +427,8 @@ func (d *DB) Query(ctx context.Context, sql string, args map[string]any) (*sql.R
 	return d.db.QueryContext(ctx, sql, argSlice...)
 }
 
-// Exec executes a query with named parameters and without returning rows.
+// Exec calls the underlying sql.DB Exec method, but uses named parameters like
+// other microrm methods.
 func (d *DB) Exec(ctx context.Context, sql string, args map[string]any) (sql.Result, error) {
 	sql, argSlice, err := d.replaceNames(sql, args)
 	if err != nil {
@@ -434,6 +437,8 @@ func (d *DB) Exec(ctx context.Context, sql string, args map[string]any) (sql.Res
 	return d.db.ExecContext(ctx, sql, argSlice...)
 }
 
+// UpdateRecord updates a single record in the database based on the provided struct.
+// The dest parameter should be a pointer to a struct of the record to update.
 func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error {
 	model, err := d.newModelType(dest)
 	if err != nil {
