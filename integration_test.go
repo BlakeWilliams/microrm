@@ -14,6 +14,7 @@ import (
 )
 
 var testDB *DB
+var testConnectionString string
 
 type mockClock struct {
 	currentTime time.Time
@@ -60,54 +61,6 @@ type NullTimeKeyValue struct {
 func (n *NullTimeKeyValue) TableName() string {
 	return "key_values"
 }
-
-func requireKVEqual(t *testing.T, expected, actual KeyValue, msgAndArgs ...interface{}) {
-	require.Equal(t, expected.ID, actual.ID, msgAndArgs...)
-	require.Equal(t, expected.Key, actual.Key, msgAndArgs...)
-	require.Equal(t, expected.Value, actual.Value, msgAndArgs...)
-}
-
-func requireKVsEqual(t *testing.T, expected, actual interface{}, msgAndArgs ...interface{}) {
-	switch expectedSlice := expected.(type) {
-	case []KeyValue:
-		switch actualSlice := actual.(type) {
-		case []KeyValue:
-			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
-			for i := range expectedSlice {
-				requireKVEqual(t, expectedSlice[i], actualSlice[i], msgAndArgs...)
-			}
-		case []*KeyValue:
-			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
-			for i := range expectedSlice {
-				require.NotNil(t, actualSlice[i], msgAndArgs...)
-				requireKVEqual(t, expectedSlice[i], *actualSlice[i], msgAndArgs...)
-			}
-		default:
-			t.Fatalf("actual must be []KeyValue or []*KeyValue, got %T", actual)
-		}
-	case []*KeyValue:
-		switch actualSlice := actual.(type) {
-		case []KeyValue:
-			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
-			for i := range expectedSlice {
-				require.NotNil(t, expectedSlice[i], msgAndArgs...)
-				requireKVEqual(t, *expectedSlice[i], actualSlice[i], msgAndArgs...)
-			}
-		case []*KeyValue:
-			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
-			for i := range expectedSlice {
-				require.NotNil(t, expectedSlice[i], msgAndArgs...)
-				require.NotNil(t, actualSlice[i], msgAndArgs...)
-				requireKVEqual(t, *expectedSlice[i], *actualSlice[i], msgAndArgs...)
-			}
-		default:
-			t.Fatalf("actual must be []KeyValue or []*KeyValue, got %T", actual)
-		}
-	default:
-		t.Fatalf("expected must be []KeyValue or []*KeyValue, got %T", expected)
-	}
-}
-
 func TestMain(m *testing.M) {
 	host := getEnv("MYSQL_HOST", "localhost")
 	port := getEnv("MYSQL_PORT", "3306")
@@ -116,8 +69,9 @@ func TestMain(m *testing.M) {
 	database := getEnv("MYSQL_DATABASE", "microrm_test")
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true", user, password, host, port, database)
-	rootDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/",
-		user, password, host, port)
+	rootDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/", user, password, host, port)
+
+	testConnectionString = dsn
 
 	if err := setupTestDatabase(rootDSN, dsn, database); err != nil {
 		log.Printf("Failed to setup test database: %v", err)
@@ -1413,11 +1367,14 @@ func setupTestDatabase(rootDSN, dsn, database string) error {
 }
 
 func setupTestTables(db *sql.DB) error {
-	dropSQL := `DROP TABLE IF EXISTS key_values;`
+	// Drop existing tables
+	dropSQL := `DROP TABLE IF EXISTS key_values, users;`
 	if _, err := db.Exec(dropSQL); err != nil {
-		return fmt.Errorf("failed to drop existing table: %w", err)
+		return fmt.Errorf("failed to drop existing tables: %w", err)
 	}
-	createSQL := `
+
+	// Create key_values table for integration tests
+	createKeyValuesSQL := `
 		CREATE TABLE key_values (
 			id INT AUTO_INCREMENT PRIMARY KEY,
 			` + "`key`" + ` VARCHAR(255) NOT NULL UNIQUE,
@@ -1426,15 +1383,30 @@ func setupTestTables(db *sql.DB) error {
 			updated_at TIMESTAMP NULL
 		)
 	`
-
-	if _, err := db.Exec(createSQL); err != nil {
+	if _, err := db.Exec(createKeyValuesSQL); err != nil {
 		return fmt.Errorf("failed to create key_values table: %w", err)
+	}
+
+	// Create users table for examples
+	createUsersSQL := `
+		CREATE TABLE users (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			email VARCHAR(255) NOT NULL UNIQUE,
+			active BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMP NULL,
+			updated_at TIMESTAMP NULL
+		)
+	`
+	if _, err := db.Exec(createUsersSQL); err != nil {
+		return fmt.Errorf("failed to create users table: %w", err)
 	}
 
 	return nil
 }
 
 func insertTestData(db *sql.DB) error {
+	// Insert key-value data for integration tests
 	keyValueData := []struct {
 		key, value string
 	}{
@@ -1452,11 +1424,31 @@ func insertTestData(db *sql.DB) error {
 		}
 	}
 
+	// Insert user data for examples
+	userData := []struct {
+		name, email string
+		active      bool
+	}{
+		{"John Doe", "john@example.com", true},
+		{"Alice Smith", "alice@example.com", true},
+		{"Bob Johnson", "bob@example.com", true},
+		{"Inactive User", "delete-me@example.com", false},
+		{"Other User", "other@example.com", true},
+	}
+
+	for _, user := range userData {
+		_, err := db.Exec("INSERT INTO users (name, email, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+			user.name, user.email, user.active, time.Now().UTC(), time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to insert user data: %w", err)
+		}
+	}
+
 	return nil
 }
 
 func cleanupTestTables(db *sql.DB) error {
-	_, err := db.Exec("DROP TABLE IF EXISTS key_values")
+	_, err := db.Exec("DROP TABLE IF EXISTS key_values, users")
 	return err
 }
 
@@ -1465,4 +1457,51 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func requireKVEqual(t *testing.T, expected, actual KeyValue, msgAndArgs ...interface{}) {
+	require.Equal(t, expected.ID, actual.ID, msgAndArgs...)
+	require.Equal(t, expected.Key, actual.Key, msgAndArgs...)
+	require.Equal(t, expected.Value, actual.Value, msgAndArgs...)
+}
+
+func requireKVsEqual(t *testing.T, expected, actual interface{}, msgAndArgs ...interface{}) {
+	switch expectedSlice := expected.(type) {
+	case []KeyValue:
+		switch actualSlice := actual.(type) {
+		case []KeyValue:
+			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
+			for i := range expectedSlice {
+				requireKVEqual(t, expectedSlice[i], actualSlice[i], msgAndArgs...)
+			}
+		case []*KeyValue:
+			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
+			for i := range expectedSlice {
+				require.NotNil(t, actualSlice[i], msgAndArgs...)
+				requireKVEqual(t, expectedSlice[i], *actualSlice[i], msgAndArgs...)
+			}
+		default:
+			t.Fatalf("actual must be []KeyValue or []*KeyValue, got %T", actual)
+		}
+	case []*KeyValue:
+		switch actualSlice := actual.(type) {
+		case []KeyValue:
+			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
+			for i := range expectedSlice {
+				require.NotNil(t, expectedSlice[i], msgAndArgs...)
+				requireKVEqual(t, *expectedSlice[i], actualSlice[i], msgAndArgs...)
+			}
+		case []*KeyValue:
+			require.Len(t, actualSlice, len(expectedSlice), msgAndArgs...)
+			for i := range expectedSlice {
+				require.NotNil(t, expectedSlice[i], msgAndArgs...)
+				require.NotNil(t, actualSlice[i], msgAndArgs...)
+				requireKVEqual(t, *expectedSlice[i], *actualSlice[i], msgAndArgs...)
+			}
+		default:
+			t.Fatalf("actual must be []KeyValue or []*KeyValue, got %T", actual)
+		}
+	default:
+		t.Fatalf("expected must be []KeyValue or []*KeyValue, got %T", expected)
+	}
 }
