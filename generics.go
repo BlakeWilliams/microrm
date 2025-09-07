@@ -15,9 +15,9 @@ type ModelDB[T any] struct {
 // M returns a ModelDB[T] for the given type T, providing an easy-to-use API to
 // run queries against that model/table.
 func M[T any](db *DB) ModelDB[T] {
-	var t T
-	if reflect.TypeOf(t).Kind() != reflect.Struct {
-		panic(fmt.Sprintf("ModelDB can only be created for struct types, got %s", reflect.TypeOf(t)))
+	tt := reflect.TypeOf((*T)(nil)).Elem()
+	if tt.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("ModelDB can only be created for struct types, got %s", tt))
 	}
 
 	return ModelDB[T]{
