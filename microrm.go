@@ -29,13 +29,6 @@ type (
 	// Updates is a map of struct fields to their values for Update* methods
 	Updates = map[string]any
 
-	// enable using db or tx in the DB struct
-	queryable interface {
-		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-		ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	}
-
 	// DB is a wrapper around sql.DB that provides lightweight ORM-like functionality.
 	DB struct {
 		db             queryable
@@ -44,6 +37,13 @@ type (
 		// Pluralizer is used to pluralize table names. You can provide your own
 		// pluralizer by overriding this field.
 		Pluralizer Pluralizer
+	}
+
+	// enable using db or tx in the DB struct
+	queryable interface {
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+		ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	}
 
 	// TableNamer is an interface models can implement to override the default
@@ -511,13 +511,6 @@ func (d *DB) UpdateRecord(ctx context.Context, model any, updates Updates) error
 	_, err = d.db.ExecContext(ctx, updateSQL, updateValues...)
 	if err != nil {
 		return fmt.Errorf("failed to execute update: %w", err)
-	}
-
-	for fieldName, val := range updates {
-		field := concreteValue(model).FieldByName(fieldName)
-		if field.IsValid() && field.CanSet() {
-			field.Set(reflect.ValueOf(val))
-		}
 	}
 
 	for fieldName, val := range updates {
