@@ -15,6 +15,22 @@ import (
 
 var testDB *DB
 
+type mockClock struct {
+	currentTime time.Time
+}
+
+func (m *mockClock) Now() time.Time {
+	return m.currentTime
+}
+
+func (m *mockClock) Advance(d time.Duration) {
+	m.currentTime = m.currentTime.Add(d)
+}
+
+func newMockClock(t time.Time) *mockClock {
+	return &mockClock{currentTime: t}
+}
+
 type KeyValue struct {
 	ID        int       `db:"id"`
 	Key       string    `db:"key"`
@@ -51,7 +67,6 @@ func requireKVEqual(t *testing.T, expected, actual KeyValue, msgAndArgs ...inter
 	require.Equal(t, expected.Value, actual.Value, msgAndArgs...)
 }
 
-// requireKVsEqual works with both []KeyValue and []*KeyValue slices
 func requireKVsEqual(t *testing.T, expected, actual interface{}, msgAndArgs ...interface{}) {
 	switch expectedSlice := expected.(type) {
 	case []KeyValue:
@@ -250,7 +265,15 @@ func TestInsert(t *testing.T) {
 	})
 
 	t.Run("insert automatically sets CreatedAt field", func(t *testing.T) {
-		beforeInsert := time.Now().UTC()
+		insertTime := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+		mockClock := newMockClock(insertTime)
+
+		db := &DB{
+			db:             testDB.db,
+			modelTypeCache: testDB.modelTypeCache,
+			Pluralizer:     testDB.Pluralizer,
+			time:           mockClock,
+		}
 
 		kv := &KeyValue{
 			Key:   "test.insert.createdat",
@@ -259,17 +282,12 @@ func TestInsert(t *testing.T) {
 
 		require.True(t, kv.CreatedAt.IsZero(), "CreatedAt should be zero before insert")
 
-		err := testDB.Insert(ctx, kv)
+		err := db.Insert(ctx, kv)
 		require.NoError(t, err)
 
-		afterInsert := time.Now().UTC()
-
-		beforeInsertTrunc := beforeInsert.Truncate(time.Second)
-		afterInsertTrunc := afterInsert.Add(time.Second).Truncate(time.Second) // Add 1 second buffer for timing
-
 		require.False(t, kv.CreatedAt.IsZero(), "CreatedAt should not be zero after insert")
-		require.True(t, kv.CreatedAt.After(beforeInsertTrunc) || kv.CreatedAt.Equal(beforeInsertTrunc))
-		require.True(t, kv.CreatedAt.Before(afterInsertTrunc) || kv.CreatedAt.Equal(afterInsertTrunc))
+		require.Equal(t, insertTime, kv.CreatedAt, "CreatedAt should match the mock time")
+		require.Equal(t, insertTime, kv.UpdatedAt, "UpdatedAt should match the mock time")
 
 		var retrievedKV KeyValue
 		err = testDB.Select(ctx, &retrievedKV, "WHERE `key` = $key", Args{"key": "test.insert.createdat"})
@@ -906,13 +924,11 @@ func TestUpdate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rows)
 
-		// old key should be gone
 		var oldKV KeyValue
 		err = testDB.Select(ctx, &oldKV, "WHERE `key` = $key", Args{"key": "test.update.multi.orig"})
 		require.Error(t, err)
 		require.Equal(t, sql.ErrNoRows, err)
 
-		// new key should exist
 		var newKV KeyValue
 		err = testDB.Select(ctx, &newKV, "WHERE `key` = $key", Args{"key": "test.update.multi.new"})
 		require.NoError(t, err)
@@ -948,21 +964,26 @@ func TestUpdate(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, kvBefore.UpdatedAt.Equal(pastTime))
 
-		rows, err := testDB.Update(ctx, &KeyValue{}, "WHERE `key` = $key", Args{"key": "test.update.updatedat"}, Updates{"Value": "updated"})
+		updateTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+		mockClock := newMockClock(updateTime)
+
+		db := &DB{
+			db:             testDB.db,
+			modelTypeCache: testDB.modelTypeCache,
+			Pluralizer:     testDB.Pluralizer,
+			time:           mockClock,
+		}
+
+		rows, err := db.Update(ctx, &KeyValue{}, "WHERE `key` = $key", Args{"key": "test.update.updatedat"}, Updates{"Value": "updated"})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), rows)
 
-		afterUpdate := time.Now().UTC()
-
-		// Verify the update worked and UpdatedAt was automatically set to a recent time
 		var kv KeyValue
 		err = testDB.Select(ctx, &kv, "WHERE `key` = $key", Args{"key": "test.update.updatedat"})
 		require.NoError(t, err)
 		require.Equal(t, "updated", kv.Value)
 
-		afterUpdateTrunc := afterUpdate.Add(time.Second).Truncate(time.Second) // Add 1 second buffer for timing
-
-		require.True(t, kv.UpdatedAt.Before(afterUpdateTrunc) || kv.UpdatedAt.Equal(afterUpdateTrunc))
+		require.WithinDuration(t, updateTime, kv.UpdatedAt, time.Second, "UpdatedAt should match the mock time within 1 second")
 		require.True(t, kv.UpdatedAt.After(pastTime), "UpdatedAt should be much later than the manually set past time")
 	})
 }
@@ -1118,13 +1139,68 @@ func TestUpdateRecord(t *testing.T) {
 		require.Equal(t, "test.updaterecord.updateid", newKV.Key)
 		require.Equal(t, "value", newKV.Value)
 	})
+
+	t.Run("update automatically sets UpdatedAt and preserves CreatedAt", func(t *testing.T) {
+		initialTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+		mockClock := newMockClock(initialTime)
+
+		db := &DB{
+			db:             testDB.db,
+			modelTypeCache: testDB.modelTypeCache,
+			Pluralizer:     testDB.Pluralizer,
+			time:           mockClock,
+		}
+
+		kv := &KeyValue{
+			Key:   "test.updaterecord.timestamps",
+			Value: "initial value",
+		}
+
+		err := db.Insert(ctx, kv)
+		require.NoError(t, err)
+		require.NotZero(t, kv.ID)
+
+		originalCreatedAt := kv.CreatedAt
+		originalUpdatedAt := kv.UpdatedAt
+
+		require.Equal(t, initialTime, originalCreatedAt)
+		require.Equal(t, initialTime, originalUpdatedAt)
+
+		mockClock.Advance(5 * time.Minute)
+		updateTime := mockClock.Now()
+
+		err = db.UpdateRecord(ctx, kv, Updates{"Value": "updated value", "Key": "test.updaterecord.timestamps.updated"})
+		require.NoError(t, err)
+
+		require.Equal(t, "updated value", kv.Value)
+		require.Equal(t, "test.updaterecord.timestamps.updated", kv.Key)
+		require.Equal(t, originalCreatedAt, kv.CreatedAt, "CreatedAt should not change during updates")
+		require.Equal(t, updateTime, kv.UpdatedAt, "UpdatedAt should match the mock time")
+		require.True(t, kv.UpdatedAt.After(originalUpdatedAt), "UpdatedAt should be newer than original")
+
+		var dbKV KeyValue
+		err = testDB.Select(ctx, &dbKV, "WHERE id = $id", Args{"id": kv.ID})
+		require.NoError(t, err)
+		require.Equal(t, "updated value", dbKV.Value)
+		require.Equal(t, "test.updaterecord.timestamps.updated", dbKV.Key)
+		require.WithinDuration(t, originalCreatedAt, dbKV.CreatedAt, 2*time.Second, "CreatedAt should be preserved in database")
+		require.WithinDuration(t, kv.UpdatedAt, dbKV.UpdatedAt, 2*time.Second, "UpdatedAt should match between struct and database")
+	})
 }
 
 func TestSqlNullTime(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("insert with automatic timestamp setting", func(t *testing.T) {
-		beforeInsert := time.Now()
+		insertTime := time.Date(2024, 2, 1, 10, 0, 0, 0, time.UTC)
+		mockClock := newMockClock(insertTime)
+
+		db := &DB{
+			db:             testDB.db,
+			modelTypeCache: testDB.modelTypeCache,
+			Pluralizer:     testDB.Pluralizer,
+			time:           mockClock,
+		}
 
 		nullTimeKV := &NullTimeKeyValue{
 			Key:   "test.sql.nulltime.insert",
@@ -1134,21 +1210,16 @@ func TestSqlNullTime(t *testing.T) {
 		require.False(t, nullTimeKV.CreatedAt.Valid)
 		require.False(t, nullTimeKV.UpdatedAt.Valid)
 
-		err := testDB.Insert(ctx, nullTimeKV)
+		err := db.Insert(ctx, nullTimeKV)
 		require.NoError(t, err)
 		require.NotZero(t, nullTimeKV.ID)
 
 		require.True(t, nullTimeKV.CreatedAt.Valid)
 		require.True(t, nullTimeKV.UpdatedAt.Valid)
 
-		afterInsert := time.Now().Add(time.Second)
+		require.Equal(t, insertTime, nullTimeKV.CreatedAt.Time)
+		require.Equal(t, insertTime, nullTimeKV.UpdatedAt.Time)
 
-		require.True(t, nullTimeKV.CreatedAt.Time.After(beforeInsert))
-		require.True(t, nullTimeKV.CreatedAt.Time.Before(afterInsert))
-		require.True(t, nullTimeKV.UpdatedAt.Time.After(beforeInsert))
-		require.True(t, nullTimeKV.UpdatedAt.Time.Before(afterInsert))
-
-		// Verify data was saved to database correctly
 		var dbKV NullTimeKeyValue
 		err = testDB.Select(ctx, &dbKV, "WHERE id = $id", Args{"id": nullTimeKV.ID})
 		require.NoError(t, err)
@@ -1161,33 +1232,40 @@ func TestSqlNullTime(t *testing.T) {
 	})
 
 	t.Run("update with automatic UpdatedAt setting", func(t *testing.T) {
+		insertTime := time.Date(2024, 2, 1, 10, 0, 0, 0, time.UTC)
+		mockClock := newMockClock(insertTime)
+
+		db := &DB{
+			db:             testDB.db,
+			modelTypeCache: testDB.modelTypeCache,
+			Pluralizer:     testDB.Pluralizer,
+			time:           mockClock,
+		}
+
 		nullTimeKV := &NullTimeKeyValue{
 			Key:   "test.sql.nulltime.update",
 			Value: "initial value",
 		}
 
-		err := testDB.Insert(ctx, nullTimeKV)
+		err := db.Insert(ctx, nullTimeKV)
 		require.NoError(t, err)
 		originalID := nullTimeKV.ID
 		originalCreatedAt := nullTimeKV.CreatedAt.Time
 		originalUpdatedAt := nullTimeKV.UpdatedAt.Time
 
-		time.Sleep(time.Second)
+		mockClock.Advance(5 * time.Minute)
+		updateTime := mockClock.Now()
 
-		beforeUpdate := time.Now()
-
-		err = testDB.UpdateRecord(ctx, nullTimeKV, Updates{"Value": "updated value"})
+		err = db.UpdateRecord(ctx, nullTimeKV, Updates{"Value": "updated value"})
 		require.NoError(t, err)
-
-		afterUpdate := time.Now().Add(time.Second)
 
 		require.Equal(t, originalID, nullTimeKV.ID)
 		require.Equal(t, "updated value", nullTimeKV.Value)
 		require.True(t, nullTimeKV.CreatedAt.Valid)
 		require.True(t, nullTimeKV.UpdatedAt.Valid)
 		require.WithinDuration(t, originalCreatedAt, nullTimeKV.CreatedAt.Time, time.Second)
-		require.True(t, nullTimeKV.UpdatedAt.Time.After(beforeUpdate))
-		require.True(t, nullTimeKV.UpdatedAt.Time.Before(afterUpdate))
+		require.Equal(t, updateTime, nullTimeKV.UpdatedAt.Time)
+		require.True(t, nullTimeKV.UpdatedAt.Time.After(originalUpdatedAt))
 		require.True(t, nullTimeKV.UpdatedAt.Time.After(originalUpdatedAt))
 
 		var dbKV NullTimeKeyValue

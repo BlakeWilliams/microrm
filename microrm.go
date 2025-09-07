@@ -31,7 +31,10 @@ type (
 	DB struct {
 		db             queryable
 		modelTypeCache *sync.Map
-		Pluralizer     Pluralizer
+		time           clock
+		// Pluralizer is used to pluralize table names. You can provide your own
+		// pluralizer by overriding this field.
+		Pluralizer Pluralizer
 	}
 
 	// TableNamer is an interface models can implement to override the default
@@ -42,14 +45,24 @@ type (
 		TableName() string
 	}
 
+	// Pluralizer is an interface for pluralizing words
 	Pluralizer interface {
 		Pluralize(word string) string
+	}
+
+	clock interface {
+		Now() time.Time
 	}
 )
 
 // New initializes a new DB instance with the provided sql.DB connection.
 func New(db *sql.DB) *DB {
-	return &DB{db: db, Pluralizer: defaultPluralizer, modelTypeCache: &sync.Map{}}
+	return &DB{
+		db:             db,
+		Pluralizer:     defaultPluralizer,
+		modelTypeCache: &sync.Map{},
+		time:           Time{},
+	}
 }
 
 // newModelType creates a new modelType for the given destination
@@ -153,7 +166,7 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 	var insertValuePlaceholders strings.Builder
 
 	value := concreteValue(dest)
-	now := time.Now().UTC()
+	now := d.time.Now().UTC()
 	touchTimestamp(value, model.createdAtFieldIndex, now)
 	touchTimestamp(value, model.updatedAtFieldIndex, now)
 
@@ -346,7 +359,7 @@ func (d *DB) Update(ctx context.Context, structType any, queryFragment string, a
 		return 0, fmt.Errorf("no updates provided")
 	}
 
-	now := time.Now().UTC()
+	now := d.time.Now().UTC()
 	if model.updatedAtFieldIndex >= 0 {
 		updates = maps.Clone(updates)
 		updateField := model.elemType.Field(model.updatedAtFieldIndex)
@@ -421,7 +434,7 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 		return fmt.Errorf("struct does not have an ID field")
 	}
 
-	now := time.Now().UTC()
+	now := d.time.Now().UTC()
 	if model.updatedAtFieldIndex >= 0 {
 		updates = maps.Clone(updates)
 		updateField := model.elemType.Field(model.updatedAtFieldIndex)
@@ -509,6 +522,7 @@ func (d *DB) Transaction(ctx context.Context, fn func(tx *DB) error) error {
 		db:             tx,
 		modelTypeCache: d.modelTypeCache,
 		Pluralizer:     d.Pluralizer,
+		time:           d.time,
 	}
 
 	err = fn(txDB)
