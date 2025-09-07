@@ -251,9 +251,10 @@ func ExampleDB_Exec() {
 	// Execute a raw SQL statement
 	result, err := db.Exec(ctx, `
 		UPDATE users
-		SET updated_at = NOW()
+		SET active = $active
 		WHERE email LIKE $pattern
 	`, microrm.Args{
+		"active":  false,
 		"pattern": "%@xfiles.gov",
 	})
 	if err != nil {
@@ -267,7 +268,7 @@ func ExampleDB_Exec() {
 
 	fmt.Printf("Updated %d users\n", rowsAffected)
 	// Output:
-	// Updated 4 users
+	// Updated 3 users
 }
 
 func getEnv(key, defaultValue string) string {
