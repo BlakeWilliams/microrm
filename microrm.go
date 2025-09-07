@@ -3,10 +3,8 @@
 // All methods use named paramters instead of driver specific placeholders in
 // SQL queries/fragments. For example, a simple SELECT statement will look like:
 //
-// ```
-// var user User
-// db.Select(&user, "WHERE name = $name AND age > $age", micorm.Args{"name": "Fox", "age": 32})
-// ```
+//	var user User
+//	db.Select(&user, "WHERE name = $name AND age > $age", micorm.Args{"name": "Fox", "age": 32})
 //
 // This enables more readable queries while avoiding the boilerplate+pitfalls of
 // positional query arguments.
@@ -77,14 +75,14 @@ func New(db *sql.DB) *DB {
 }
 
 // newModelType creates a new modelType for the given destination
-func (d *DB) newModelType(dest any) (*modelType, error) {
-	key := reflect.TypeOf(dest)
+func (d *DB) newModelType(model any) (*modelType, error) {
+	key := reflect.TypeOf(model)
 
 	if cached, ok := d.modelTypeCache.Load(key); ok {
 		return cached.(*modelType), nil
 	}
 
-	newModel, err := newModelType(dest, d.Pluralizer)
+	newModel, err := newModelType(model, d.Pluralizer)
 
 	if err != nil {
 		return nil, err
@@ -103,9 +101,9 @@ func (d *DB) Close() error {
 	return nil
 }
 
-// Select executes a query and scans the result into the provided destination struct or slice of structs.
-func (d *DB) Select(ctx context.Context, dest any, queryFragment string, args Args) error {
-	model, err := d.newModelType(dest)
+// Select executes a query and scans the result into the provided model struct or slice of structs.
+func (d *DB) Select(ctx context.Context, model any, queryFragment string, args Args) error {
+	modelType, err := d.newModelType(model)
 	if err != nil {
 		return fmt.Errorf("failed to select data: %w", err)
 	}
@@ -114,7 +112,7 @@ func (d *DB) Select(ctx context.Context, dest any, queryFragment string, args Ar
 	if err != nil {
 		return fmt.Errorf("failed to prepare query: %w", err)
 	}
-	selectFragment, structFields := d.generateSelect(model)
+	selectFragment, structFields := d.generateSelect(modelType)
 	query := selectFragment + " " + fragment
 	rows, err := d.db.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
@@ -122,11 +120,11 @@ func (d *DB) Select(ctx context.Context, dest any, queryFragment string, args Ar
 	}
 	defer rows.Close()
 
-	if !model.isValidSlice && !model.isStructPointer {
-		return fmt.Errorf("expected a pointer to a slice, or a struct, got %s", reflect.TypeOf(dest).String())
+	if !modelType.isValidSlice && !modelType.isStructPointer {
+		return fmt.Errorf("expected a pointer to a slice, or a struct, got %s", reflect.TypeOf(model).String())
 	}
 
-	rootType := reflect.TypeOf(dest)
+	rootType := reflect.TypeOf(model)
 	isSlice := rootType.Kind() == reflect.Slice || rootType.Kind() == reflect.Pointer && rootType.Elem().Kind() == reflect.Slice
 
 	if rows.Err() != nil {
@@ -134,24 +132,24 @@ func (d *DB) Select(ctx context.Context, dest any, queryFragment string, args Ar
 	}
 
 	if isSlice {
-		sliceTarget := reflect.ValueOf(dest).Elem()
+		sliceTarget := reflect.ValueOf(model).Elem()
 
 		for rows.Next() {
-			row := reflect.New(model.elemType).Elem()
+			row := reflect.New(modelType.elemType).Elem()
 			if err := scanStruct(structFields, rows, row); err != nil {
 				return fmt.Errorf("failed to scan row: %w", err)
 			}
 
-			if model.isSliceOfPointers {
+			if modelType.isSliceOfPointers {
 				row = row.Addr()
 			}
 
 			sliceTarget = reflect.Append(sliceTarget, row)
 		}
 
-		reflect.ValueOf(dest).Elem().Set(sliceTarget)
+		reflect.ValueOf(model).Elem().Set(sliceTarget)
 	} else {
-		row := concreteValue(dest)
+		row := concreteValue(model)
 
 		// rows.Next() must be called to advance to the first row and check if
 		// we actually have results, otherwise return sql.ErrNoRows
@@ -167,25 +165,25 @@ func (d *DB) Select(ctx context.Context, dest any, queryFragment string, args Ar
 }
 
 // Insert inserts a new record into the database based on the provided struct.
-func (d *DB) Insert(ctx context.Context, dest any) error {
-	model, err := d.newModelType(dest)
+func (d *DB) Insert(ctx context.Context, model any) error {
+	modelType, err := d.newModelType(model)
 	if err != nil {
 		return fmt.Errorf("failed to insert data: %w", err)
 	}
-	if !model.isStructPointer {
-		return fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
+	if !modelType.isStructPointer {
+		return fmt.Errorf("destination must be a pointer to a struct, got %s", modelType.baseType.Kind())
 	}
 
 	var insertColumns strings.Builder
-	insertColumnData := make([]any, 0, model.numField)
+	insertColumnData := make([]any, 0, modelType.numField)
 	var insertValuePlaceholders strings.Builder
 
-	value := concreteValue(dest)
+	value := concreteValue(model)
 	now := d.time.Now().UTC()
-	touchTimestamp(value, model.createdAtFieldIndex, now)
-	touchTimestamp(value, model.updatedAtFieldIndex, now)
+	touchTimestamp(value, modelType.createdAtFieldIndex, now)
+	touchTimestamp(value, modelType.updatedAtFieldIndex, now)
 
-	for _, col := range model.columns {
+	for _, col := range modelType.columns {
 		fieldValue := value.FieldByName(col.Name)
 
 		columnName := col.Tag.Get("db")
@@ -202,7 +200,7 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 		insertValuePlaceholders.WriteString("?")
 	}
 
-	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", model.tableName, insertColumns.String(), insertValuePlaceholders.String())
+	insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", modelType.tableName, insertColumns.String(), insertValuePlaceholders.String())
 
 	res, err := d.db.ExecContext(ctx, insertSQL, insertColumnData...)
 	if err != nil {
@@ -215,7 +213,7 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 	}
 
 	// Attempt to set the ID field if it exists
-	idField, ok := d.findIDField(concreteValue(dest), model)
+	idField, ok := d.findIDField(concreteValue(model), modelType)
 	if ok && idField.IsValid() && idField.CanSet() {
 		switch idField.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -231,12 +229,12 @@ func (d *DB) Insert(ctx context.Context, dest any) error {
 }
 
 // Delete deletes records from the database based on the provided struct type
-// and SQL fragment with named parameters.	 The dest parameter should be a
+// and SQL fragment with named parameters. The model argument should be a
 // pointer to a struct type representing the table to delete from.
 //
-// It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) Delete(ctx context.Context, dest any, queryFragment string, args Args) (int64, error) {
-	model, err := d.newModelType(dest)
+// It returns the number of rows affected
+func (d *DB) Delete(ctx context.Context, modelRef any, queryFragment string, args Args) (int64, error) {
+	modelType, err := d.newModelType(modelRef)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
@@ -247,7 +245,7 @@ func (d *DB) Delete(ctx context.Context, dest any, queryFragment string, args Ar
 		return 0, fmt.Errorf("failed to prepare delete query: %w", err)
 	}
 
-	deleteSQL := fmt.Sprintf("DELETE FROM %s %s", model.tableName, fragment)
+	deleteSQL := fmt.Sprintf("DELETE FROM %s %s", modelType.tableName, fragment)
 	res, err := d.db.ExecContext(ctx, deleteSQL, queryArgs...)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute delete: %w", err)
@@ -267,22 +265,22 @@ func (d *DB) Delete(ctx context.Context, dest any, queryFragment string, args Ar
 // `DB.Delete`.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) DeleteRecords(ctx context.Context, dest any) (int64, error) {
-	model, err := d.newModelType(dest)
+func (d *DB) DeleteRecords(ctx context.Context, models any) (int64, error) {
+	modelType, err := d.newModelType(models)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
 
-	if !model.isValidSlice {
-		return 0, fmt.Errorf("destination must be a slice, got %s", model.baseType.Kind())
+	if !modelType.isValidSlice {
+		return 0, fmt.Errorf("destination must be a slice, got %s", modelType.baseType.Kind())
 	}
 
-	destValue := concreteValue(dest)
+	destValue := concreteValue(models)
 
 	n := int64(0)
 	err = d.Transaction(ctx, func(tx *DB) error {
 		// For []*T, items are already pointers so we can pass them directly
-		if model.isSliceOfPointers {
+		if modelType.isSliceOfPointers {
 			for i := range destValue.Len() {
 				item := destValue.Index(i).Interface()
 				nn, err := tx.DeleteRecord(ctx, item)
@@ -318,19 +316,19 @@ func (d *DB) DeleteRecords(ctx context.Context, dest any) (int64, error) {
 // The dest parameter should be a pointer to a struct representing the record to delete.
 //
 // It returns the number of rows affected, or an error if the operation fails.
-func (d *DB) DeleteRecord(ctx context.Context, dest any) (int64, error) {
-	model, err := d.newModelType(dest)
+func (d *DB) DeleteRecord(ctx context.Context, model any) (int64, error) {
+	modelType, err := d.newModelType(model)
 
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete data: %w", err)
 	}
 
-	if !model.isStructPointer {
-		return 0, fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
+	if !modelType.isStructPointer {
+		return 0, fmt.Errorf("destination must be a pointer to a struct, got %s", modelType.baseType.Kind())
 	}
 
-	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", model.tableName)
-	idField, ok := d.findIDField(concreteValue(dest), model)
+	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = ?", modelType.tableName)
+	idField, ok := d.findIDField(concreteValue(model), modelType)
 	if !ok {
 		return 0, fmt.Errorf("struct does not have an ID field")
 	}
@@ -363,21 +361,21 @@ func (d *DB) findIDField(destValue reflect.Value, model *modelType) (reflect.Val
 //
 // It returns the number of rows affected, or an error if the operation fails.
 func (d *DB) Update(ctx context.Context, structType any, queryFragment string, args Args, updates Updates) (int64, error) {
-	model, err := d.newModelType(structType)
+	modelType, err := d.newModelType(structType)
 	if err != nil {
 		return 0, fmt.Errorf("failed to update data: %w", err)
 	}
-	if !model.isStructPointer && !model.isStruct {
-		return 0, fmt.Errorf("destination must be a struct or pointer to a struct, got %s", model.baseType.Kind())
+	if !modelType.isStructPointer && !modelType.isStruct {
+		return 0, fmt.Errorf("destination must be a struct or pointer to a struct, got %s", modelType.baseType.Kind())
 	}
 	if len(updates) == 0 {
 		return 0, fmt.Errorf("no updates provided")
 	}
 
 	now := d.time.Now().UTC()
-	if model.updatedAtFieldIndex >= 0 {
+	if modelType.updatedAtFieldIndex >= 0 {
 		updates = maps.Clone(updates)
-		updateField := model.elemType.Field(model.updatedAtFieldIndex)
+		updateField := modelType.elemType.Field(modelType.updatedAtFieldIndex)
 
 		switch updateField.Type.String() {
 		case "time.Time":
@@ -394,7 +392,7 @@ func (d *DB) Update(ctx context.Context, structType any, queryFragment string, a
 	var setClauses strings.Builder
 	updateValues := make([]any, 0, len(updates))
 
-	for _, col := range model.columns {
+	for _, col := range modelType.columns {
 		if _, ok := updates[col.Name]; !ok {
 			continue
 		}
@@ -416,7 +414,7 @@ func (d *DB) Update(ctx context.Context, structType any, queryFragment string, a
 		return 0, fmt.Errorf("failed to prepare update query: %w", err)
 	}
 
-	updateSQL := fmt.Sprintf("UPDATE %s SET %s %s", model.tableName, setClauses.String(), fragment)
+	updateSQL := fmt.Sprintf("UPDATE %s SET %s %s", modelType.tableName, setClauses.String(), fragment)
 	finalArgs := append(updateValues, whereArgs...)
 
 	res, err := d.db.ExecContext(ctx, updateSQL, finalArgs...)
@@ -454,28 +452,28 @@ func (d *DB) Exec(ctx context.Context, sql string, args map[string]any) (sql.Res
 
 // UpdateRecord updates a single record in the database based on the provided struct.
 // The dest parameter should be a pointer to a struct of the record to update.
-func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error {
-	model, err := d.newModelType(dest)
+func (d *DB) UpdateRecord(ctx context.Context, model any, updates Updates) error {
+	modelType, err := d.newModelType(model)
 	if err != nil {
 		return fmt.Errorf("failed to update data: %w", err)
 	}
-	if !model.isStructPointer {
-		return fmt.Errorf("destination must be a pointer to a struct, got %s", model.baseType.Kind())
+	if !modelType.isStructPointer {
+		return fmt.Errorf("destination must be a pointer to a struct, got %s", modelType.baseType.Kind())
 	}
 	if len(updates) == 0 {
 		return fmt.Errorf("no updates provided")
 	}
 
-	value := concreteValue(dest)
-	idField, ok := d.findIDField(value, model)
+	value := concreteValue(model)
+	idField, ok := d.findIDField(value, modelType)
 	if !ok {
 		return fmt.Errorf("struct does not have an ID field")
 	}
 
 	now := d.time.Now().UTC()
-	if model.updatedAtFieldIndex >= 0 {
+	if modelType.updatedAtFieldIndex >= 0 {
 		updates = maps.Clone(updates)
-		updateField := model.elemType.Field(model.updatedAtFieldIndex)
+		updateField := modelType.elemType.Field(modelType.updatedAtFieldIndex)
 
 		switch updateField.Type.String() {
 		case "time.Time":
@@ -493,7 +491,7 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 	updateValues := make([]any, 0, len(updates))
 
 	for fieldName, val := range updates {
-		field, ok := model.elemType.FieldByName(fieldName)
+		field, ok := modelType.elemType.FieldByName(fieldName)
 		if !ok || !field.IsExported() {
 			return fmt.Errorf("cannot update missing or unexported field: %s", fieldName)
 		}
@@ -508,7 +506,7 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 		updateValues = append(updateValues, val)
 	}
 
-	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", model.tableName, setClauses.String())
+	updateSQL := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", modelType.tableName, setClauses.String())
 	updateValues = append(updateValues, idField.Interface())
 	_, err = d.db.ExecContext(ctx, updateSQL, updateValues...)
 	if err != nil {
@@ -516,7 +514,7 @@ func (d *DB) UpdateRecord(ctx context.Context, dest any, updates Updates) error 
 	}
 
 	for fieldName, val := range updates {
-		field := concreteValue(dest).FieldByName(fieldName)
+		field := concreteValue(model).FieldByName(fieldName)
 		if field.IsValid() && field.CanSet() {
 			field.Set(reflect.ValueOf(val))
 		}
