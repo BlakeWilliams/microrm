@@ -236,7 +236,7 @@ func TestDB_generateSelect(t *testing.T) {
 
 	db := &DB{}
 
-	model, err := newModelType(TestStruct{})
+	model, err := newModelType(TestStruct{}, defaultPluralizer)
 	require.NoError(t, err)
 
 	actualSQL, actualFields := db.generateSelect(model)

@@ -30,8 +30,8 @@ type (
 	// DB is a wrapper around sql.DB that provides lightweight ORM-like functionality.
 	DB struct {
 		db             queryable
-		nameMap        map[string]string
 		modelTypeCache sync.Map
+		Pluralizer     Pluralizer
 	}
 
 	// TableNamer is an interface models can implement to override the default
@@ -41,11 +41,15 @@ type (
 	TableNamer interface {
 		TableName() string
 	}
+
+	Pluralizer interface {
+		Pluralize(word string) string
+	}
 )
 
 // New initializes a new DB instance with the provided sql.DB connection.
 func New(db *sql.DB) *DB {
-	return &DB{db: db, nameMap: make(map[string]string)}
+	return &DB{db: db, Pluralizer: defaultPluralizer}
 }
 
 // newModelType creates a new modelType for the given destination
@@ -56,7 +60,7 @@ func (d *DB) newModelType(dest any) (*modelType, error) {
 		return cached.(*modelType), nil
 	}
 
-	newModel, err := newModelType(dest)
+	newModel, err := newModelType(dest, d.Pluralizer)
 
 	if err != nil {
 		return nil, err
@@ -502,8 +506,9 @@ func (d *DB) Transaction(ctx context.Context, fn func(tx *DB) error) error {
 	}()
 
 	txDB := &DB{
-		db:      tx,
-		nameMap: d.nameMap,
+		db:             tx,
+		modelTypeCache: d.modelTypeCache,
+		Pluralizer:     d.Pluralizer,
 	}
 
 	err = fn(txDB)

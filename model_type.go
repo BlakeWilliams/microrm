@@ -3,6 +3,7 @@ package microrm
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 type modelType struct {
@@ -27,7 +28,7 @@ type modelType struct {
 
 var errInvalidType = fmt.Errorf("destination must be a struct, or a slice of structs")
 
-func newModelType(t any) (*modelType, error) {
+func newModelType(t any, pluralizer Pluralizer) (*modelType, error) {
 	baseType := reflect.TypeOf(t)
 	elemType := baseType
 
@@ -45,7 +46,13 @@ func newModelType(t any) (*modelType, error) {
 		tableNamer := instance.Interface().(TableNamer)
 		tableName = tableNamer.TableName()
 	} else {
-		tableName = pluralize(snake_case(elemType.Name()))
+		tableName = snake_case(elemType.Name())
+		splitName := strings.Split(tableName, "_")
+		if len(splitName) > 1 {
+			tableName = strings.Join(splitName[:len(splitName)-1], "_") + "_" + pluralizer.Pluralize(splitName[len(splitName)-1])
+		} else {
+			tableName = pluralizer.Pluralize(tableName)
+		}
 	}
 
 	model := &modelType{
@@ -71,7 +78,7 @@ func newModelType(t any) (*modelType, error) {
 }
 
 func findColumns(m *modelType, elem reflect.Type) {
-	for i := 0; i < elem.NumField(); i++ {
+	for i := range elem.NumField() {
 		field := elem.Field(i)
 		if !field.IsExported() {
 			continue
