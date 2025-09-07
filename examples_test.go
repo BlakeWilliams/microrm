@@ -22,40 +22,15 @@ type User struct {
 	UpdatedAt time.Time `db:"updated_at"`
 }
 
-// exampleConnectionString returns the database connection string for examples
-var exampleConnectionString string
-
-func init() {
-	host := getEnv("MYSQL_HOST", "localhost")
-	port := getEnv("MYSQL_PORT", "3306")
-	user := getEnv("MYSQL_USER", "root")
-	password := getEnv("MYSQL_PASSWORD", "")
-	database := getEnv("MYSQL_DATABASE", "microrm_test")
-
-	exampleConnectionString = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true", user, password, host, port, database)
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func ExampleDB_Select() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
 	// Select a single user by email
 	var user User
-	err = db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
+	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
 		"email": "mulder@fbi.gov",
 	})
 	if err != nil {
@@ -80,13 +55,8 @@ func ExampleDB_Select() {
 }
 
 func ExampleDB_Insert() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
@@ -97,7 +67,7 @@ func ExampleDB_Insert() {
 		Active: true,
 	}
 
-	err = db.Insert(ctx, user)
+	err := db.Insert(ctx, user)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -110,13 +80,8 @@ func ExampleDB_Insert() {
 }
 
 func ExampleDB_Update() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
@@ -136,19 +101,14 @@ func ExampleDB_Update() {
 }
 
 func ExampleDB_UpdateRecord() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
 	// Get an existing user
 	var user User
-	err = db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
+	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
 		"email": "rick@c137.net",
 	})
 	if err != nil {
@@ -169,13 +129,8 @@ func ExampleDB_UpdateRecord() {
 }
 
 func ExampleDB_Delete() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
@@ -194,19 +149,14 @@ func ExampleDB_Delete() {
 }
 
 func ExampleDB_DeleteRecord() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
 	// Get an existing user to delete
 	var user User
-	err = db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
+	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
 		"email": "jon@winterfell.got",
 	})
 	if err != nil {
@@ -225,17 +175,12 @@ func ExampleDB_DeleteRecord() {
 }
 
 func ExampleDB_Transaction() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
-	err = db.Transaction(ctx, func(tx *microrm.DB) error {
+	err := db.Transaction(ctx, func(tx *microrm.DB) error {
 		// Insert a new user
 		user := &User{
 			Name:   "Jesse Pinkman",
@@ -265,13 +210,8 @@ func ExampleDB_Transaction() {
 }
 
 func ExampleDB_Query() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
@@ -303,13 +243,8 @@ func ExampleDB_Query() {
 }
 
 func ExampleDB_Exec() {
-	// Setup database connection
-	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer sqlDB.Close()
-
+	sqlDB, cleanup := setupDB()
+	defer cleanup()
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
@@ -333,4 +268,113 @@ func ExampleDB_Exec() {
 	fmt.Printf("Updated %d users\n", rowsAffected)
 	// Output:
 	// Updated 2 users
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func setupDB() (*sql.DB, func()) {
+	host := getEnv("MYSQL_HOST", "localhost")
+	port := getEnv("MYSQL_PORT", "3306")
+	user := getEnv("MYSQL_USER", "root")
+	password := getEnv("MYSQL_PASSWORD", "")
+	database := getEnv("MYSQL_DATABASE", "microrm_test")
+
+	rootDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/", user, password, host, port)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true", user, password, host, port, database)
+
+	if err := setupExampleDatabase(rootDSN, dsn, database); err != nil {
+		log.Fatalf("Failed to setup example database: %v", err)
+	}
+
+	sqlDB, err := sql.Open("mysql", dsn)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cleanup := func() {
+		sqlDB.Close()
+	}
+
+	return sqlDB, cleanup
+}
+
+func setupExampleDatabase(rootDSN, dsn, database string) error {
+	rootDB, err := sql.Open("mysql", rootDSN)
+	if err != nil {
+		return fmt.Errorf("failed to connect to MySQL: %w", err)
+	}
+	defer rootDB.Close()
+
+	_, err = rootDB.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", database))
+	if err != nil {
+		return fmt.Errorf("failed to create database: %w", err)
+	}
+
+	sqlDB, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return fmt.Errorf("failed to connect to example database: %w", err)
+	}
+	defer sqlDB.Close()
+
+	if err = setupExampleTables(sqlDB); err != nil {
+		return fmt.Errorf("failed to setup example tables: %w", err)
+	}
+
+	if err = insertExampleData(sqlDB); err != nil {
+		return fmt.Errorf("failed to insert example data: %w", err)
+	}
+
+	return nil
+}
+
+func setupExampleTables(db *sql.DB) error {
+	dropSQL := `DROP TABLE IF EXISTS key_values, users;`
+	if _, err := db.Exec(dropSQL); err != nil {
+		return fmt.Errorf("failed to drop existing tables: %w", err)
+	}
+
+	createUsersSQL := `
+		CREATE TABLE users (
+			id INT AUTO_INCREMENT PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			email VARCHAR(255) NOT NULL UNIQUE,
+			active BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMP NULL,
+			updated_at TIMESTAMP NULL
+		)
+	`
+	if _, err := db.Exec(createUsersSQL); err != nil {
+		return fmt.Errorf("failed to create users table: %w", err)
+	}
+
+	return nil
+}
+
+func insertExampleData(db *sql.DB) error {
+	userData := []struct {
+		name, email string
+		active      bool
+	}{
+		{"Fox Mulder", "mulder@fbi.gov", true},
+		{"Dana Scully", "scully@fbi.gov", true},
+		{"Rick Sanchez", "rick@c137.net", true},
+		{"Morty Smith", "morty@c137.net", false},
+		{"Ned Stark", "ned@winterfell.got", false},
+		{"Jon Snow", "jon@winterfell.got", true},
+	}
+
+	for _, user := range userData {
+		_, err := db.Exec("INSERT INTO users (name, email, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+			user.name, user.email, user.active, time.Now().UTC(), time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("failed to insert user data: %w", err)
+		}
+	}
+
+	return nil
 }

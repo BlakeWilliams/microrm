@@ -122,6 +122,10 @@ func (d *DB) Select(ctx context.Context, dest any, rawSql string, rawArgs Args) 
 	}
 	defer rows.Close()
 
+	if !model.isValidSlice && !model.isStructPointer {
+		return fmt.Errorf("expected a pointer to a slice, or a struct, got %s", reflect.TypeOf(dest).String())
+	}
+
 	rootType := reflect.TypeOf(dest)
 	isSlice := rootType.Kind() == reflect.Slice || rootType.Kind() == reflect.Pointer && rootType.Elem().Kind() == reflect.Slice
 
