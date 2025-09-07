@@ -9,30 +9,26 @@ import (
 // ModelDB provides a type-safe, generic interface for database operations on a specific model type T.
 // It wraps the underlying DB instance and provides methods that automatically handle the model type.
 type ModelDB[T any] struct {
-	t  reflect.Type
-	db DB
+	db *DB
 }
 
 // M returns a ModelDB[T] for the given type T, providing an easy-to-use API to
 // run queries against that model/table.
 func M[T any](db *DB) ModelDB[T] {
-	var _t T
-	tType := reflect.TypeOf(_t)
-
-	if tType.Kind() != reflect.Struct {
-		panic(fmt.Sprintf("ModelDB can only be created for struct types, got %s", tType.Kind()))
+	var t T
+	if reflect.TypeOf(t).Kind() != reflect.Struct {
+		panic(fmt.Sprintf("ModelDB can only be created for struct types, got %s", reflect.TypeOf(t)))
 	}
 
 	return ModelDB[T]{
-		t:  reflect.TypeOf(_t),
-		db: *db,
+		db: db,
 	}
 }
 
 // Many executes a SELECT query and returns multiple records of type T.
 // The queryFragment should contain the WHERE clause and any other SQL after SELECT.
 func (m *ModelDB[T]) Many(ctx context.Context, queryFragment string, args Args) ([]T, error) {
-	records := reflect.MakeSlice(reflect.SliceOf(m.t), 0, 0).Interface().([]T)
+	var records []T
 	err := m.db.Select(ctx, &records, queryFragment, args)
 	if err != nil {
 		return nil, err
@@ -44,13 +40,7 @@ func (m *ModelDB[T]) Many(ctx context.Context, queryFragment string, args Args) 
 // Find executes a SELECT query and returns a single record of type T.
 // Returns an error if no record is found or if multiple records match.
 func (m *ModelDB[T]) Find(ctx context.Context, queryFragment string, args Args) (T, error) {
-	newRecord := reflect.New(m.t)
 	var record T
-	if m.t.Kind() == reflect.Pointer {
-		record = newRecord.Interface().(T)
-	} else {
-		record = newRecord.Elem().Interface().(T)
-	}
 
 	err := m.db.Select(ctx, &record, queryFragment, args)
 	if err != nil {
