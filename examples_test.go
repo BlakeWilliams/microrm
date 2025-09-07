@@ -31,7 +31,7 @@ func ExampleDB_Select() {
 	// Select a single user by email
 	var user User
 	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
-		"email": "mulder@fbi.gov",
+		"email": "mulder@xfiles.gov",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -41,7 +41,7 @@ func ExampleDB_Select() {
 	// Select multiple active users
 	var activeUsers []User
 	err = db.Select(ctx, &activeUsers, "WHERE email LIKE $pattern AND active = $active ORDER BY name LIMIT 2", microrm.Args{
-		"pattern": "%@fbi.gov",
+		"pattern": "%@xfiles.gov",
 		"active":  true,
 	})
 	if err != nil {
@@ -50,7 +50,7 @@ func ExampleDB_Select() {
 	fmt.Printf("Found %d active users\n", len(activeUsers))
 
 	// Output:
-	// Found user: Fox Mulder (mulder@fbi.gov)
+	// Found user: Fox Mulder (mulder@xfiles.gov)
 	// Found 2 active users
 }
 
@@ -62,8 +62,8 @@ func ExampleDB_Insert() {
 
 	// Insert a new user - ID and timestamps will be set automatically
 	user := &User{
-		Name:   "Walter White",
-		Email:  "heisenberg@breakingbad.com",
+		Name:   "C.G.B Spender",
+		Email:  "smokingman@xfiles.gov",
 		Active: true,
 	}
 
@@ -75,7 +75,7 @@ func ExampleDB_Insert() {
 	fmt.Printf("Inserted user with ID: %d\n", user.ID)
 	fmt.Printf("Active: %t\n", user.Active)
 	// Output:
-	// Inserted user with ID: 7
+	// Inserted user with ID: 5
 	// Active: true
 }
 
@@ -87,7 +87,7 @@ func ExampleDB_Update() {
 
 	// Update user status
 	rowsAffected, err := db.Update(ctx, &User{}, "WHERE email = $email", microrm.Args{
-		"email": "morty@c137.net",
+		"email": "skinner@xfiles.gov",
 	}, microrm.Updates{
 		"Active": true,
 	})
@@ -109,7 +109,7 @@ func ExampleDB_UpdateRecord() {
 	// Get an existing user
 	var user User
 	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
-		"email": "rick@c137.net",
+		"email": "mulder@xfiles.gov",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -117,7 +117,7 @@ func ExampleDB_UpdateRecord() {
 
 	// Update the user record - UpdatedAt will be set automatically
 	err = db.UpdateRecord(ctx, &user, microrm.Updates{
-		"Name": "Rick Sanchez (Scientist)",
+		"Name": "Fox Mulder (FBI Agent)",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -125,7 +125,7 @@ func ExampleDB_UpdateRecord() {
 
 	fmt.Printf("Updated user: %s\n", user.Name)
 	// Output:
-	// Updated user: Rick Sanchez (Scientist)
+	// Updated user: Fox Mulder (FBI Agent)
 }
 
 func ExampleDB_Delete() {
@@ -136,7 +136,7 @@ func ExampleDB_Delete() {
 
 	// Delete users
 	rowsAffected, err := db.Delete(ctx, &User{}, "WHERE email LIKE $pattern AND active = $active", microrm.Args{
-		"pattern": "%@winterfell.got",
+		"pattern": "%@xfiles.gov",
 		"active":  false,
 	})
 	if err != nil {
@@ -157,7 +157,7 @@ func ExampleDB_DeleteRecord() {
 	// Get an existing user to delete
 	var user User
 	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
-		"email": "jon@winterfell.got",
+		"email": "scully@xfiles.gov",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -183,8 +183,8 @@ func ExampleDB_Transaction() {
 	err := db.Transaction(ctx, func(tx *microrm.DB) error {
 		// Insert a new user
 		user := &User{
-			Name:   "Jesse Pinkman",
-			Email:  "jesse@breakingbad.com",
+			Name:   "Monica Reyes",
+			Email:  "reyes@xfiles.gov",
 			Active: true,
 		}
 		if err := tx.Insert(ctx, user); err != nil {
@@ -193,7 +193,7 @@ func ExampleDB_Transaction() {
 
 		// Update another user in the same transaction
 		_, err := tx.Update(ctx, &User{}, "WHERE email = $email", microrm.Args{
-			"email": "rick@c137.net",
+			"email": "mulder@xfiles.gov",
 		}, microrm.Updates{
 			"Active": false,
 		})
@@ -222,7 +222,7 @@ func ExampleDB_Query() {
 		WHERE email LIKE $pattern AND active = $active
 		ORDER BY name LIMIT 2
 	`, microrm.Args{
-		"pattern": "%@fbi.gov",
+		"pattern": "%@xfiles.gov",
 		"active":  true,
 	})
 	if err != nil {
@@ -238,8 +238,8 @@ func ExampleDB_Query() {
 		fmt.Printf("%s (%s)\n", name, email)
 	}
 	// Output:
-	// Dana Scully (scully@fbi.gov)
-	// Fox Mulder (mulder@fbi.gov)
+	// Dana Scully (scully@xfiles.gov)
+	// Fox Mulder (mulder@xfiles.gov)
 }
 
 func ExampleDB_Exec() {
@@ -254,7 +254,7 @@ func ExampleDB_Exec() {
 		SET updated_at = NOW()
 		WHERE email LIKE $pattern
 	`, microrm.Args{
-		"pattern": "%@c137.net",
+		"pattern": "%@xfiles.gov",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -267,7 +267,7 @@ func ExampleDB_Exec() {
 
 	fmt.Printf("Updated %d users\n", rowsAffected)
 	// Output:
-	// Updated 2 users
+	// Updated 4 users
 }
 
 func getEnv(key, defaultValue string) string {
@@ -297,6 +297,8 @@ func setupDB() (*sql.DB, func()) {
 	}
 
 	cleanup := func() {
+		// Truncate tables on cleanup
+		sqlDB.Exec("TRUNCATE TABLE users")
 		sqlDB.Close()
 	}
 
@@ -356,16 +358,20 @@ func setupExampleTables(db *sql.DB) error {
 }
 
 func insertExampleData(db *sql.DB) error {
+	// Truncate tables first to ensure clean state
+	_, err := db.Exec("TRUNCATE TABLE users")
+	if err != nil {
+		return fmt.Errorf("failed to truncate users table: %w", err)
+	}
+
 	userData := []struct {
 		name, email string
 		active      bool
 	}{
-		{"Fox Mulder", "mulder@fbi.gov", true},
-		{"Dana Scully", "scully@fbi.gov", true},
-		{"Rick Sanchez", "rick@c137.net", true},
-		{"Morty Smith", "morty@c137.net", false},
-		{"Ned Stark", "ned@winterfell.got", false},
-		{"Jon Snow", "jon@winterfell.got", true},
+		{"Fox Mulder", "mulder@xfiles.gov", true},
+		{"Dana Scully", "scully@xfiles.gov", true},
+		{"Walter Skinner", "skinner@xfiles.gov", false},
+		{"John Doggett", "doggett@xfiles.gov", true},
 	}
 
 	for _, user := range userData {
