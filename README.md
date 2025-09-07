@@ -80,7 +80,7 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [x] Updates `created_at` and `updated_at` fields automatically.
 - [ ] Support for standard DB `Exec` with named parameters.
 - [ ] Support for standard DB `Query` with named parameters.
-- [ ] Pluralize table names by default
+- [x] Pluralize table names by default
 
 Not in scope, but welcome contributions:
 
