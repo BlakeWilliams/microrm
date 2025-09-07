@@ -281,10 +281,6 @@ func TestInsert(t *testing.T) {
 func TestTransaction(t *testing.T) {
 	ctx := context.Background()
 
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
 	t.Run("successful transaction commits changes", func(t *testing.T) {
 		var insertedKV *KeyValue
 
