@@ -1429,11 +1429,12 @@ func insertTestData(db *sql.DB) error {
 		name, email string
 		active      bool
 	}{
-		{"John Doe", "john@example.com", true},
-		{"Alice Smith", "alice@example.com", true},
-		{"Bob Johnson", "bob@example.com", true},
-		{"Inactive User", "delete-me@example.com", false},
-		{"Other User", "other@example.com", true},
+		{"Fox Mulder", "mulder@fbi.gov", true},
+		{"Dana Scully", "scully@fbi.gov", true},
+		{"Rick Sanchez", "rick@c137.net", true},
+		{"Morty Smith", "morty@c137.net", false},
+		{"Ned Stark", "ned@winterfell.got", false},
+		{"Jon Snow", "jon@winterfell.got", true},
 	}
 
 	for _, user := range userData {

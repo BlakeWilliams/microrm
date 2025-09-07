@@ -45,7 +45,6 @@ func getEnv(key, defaultValue string) string {
 func ExampleDB_Select() {
 	// Setup database connection
 	sqlDB, err := sql.Open("mysql", exampleConnectionString)
-
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -57,26 +56,27 @@ func ExampleDB_Select() {
 	// Select a single user by email
 	var user User
 	err = db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
-		"email": "john@example.com",
+		"email": "mulder@fbi.gov",
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("Found user: %s (%s)\n", user.Name, user.Email)
 
-	// Select multiple users
-	var users []User
-	err = db.Select(ctx, &users, "WHERE active = $active ORDER BY name", microrm.Args{
-		"active": true,
+	// Select multiple active users
+	var activeUsers []User
+	err = db.Select(ctx, &activeUsers, "WHERE email LIKE $pattern AND active = $active ORDER BY name LIMIT 2", microrm.Args{
+		"pattern": "%@fbi.gov",
+		"active":  true,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Found %d active users\n", len(users))
+	fmt.Printf("Found %d active users\n", len(activeUsers))
 
 	// Output:
-	// Found user: John Doe (john@example.com)
-	// Found 4 active users
+	// Found user: Fox Mulder (mulder@fbi.gov)
+	// Found 2 active users
 }
 
 func ExampleDB_Insert() {
@@ -92,8 +92,8 @@ func ExampleDB_Insert() {
 
 	// Insert a new user - ID and timestamps will be set automatically
 	user := &User{
-		Name:   "Jane Smith",
-		Email:  "jane@example.com",
+		Name:   "Walter White",
+		Email:  "heisenberg@breakingbad.com",
 		Active: true,
 	}
 
@@ -105,7 +105,7 @@ func ExampleDB_Insert() {
 	fmt.Printf("Inserted user with ID: %d\n", user.ID)
 	fmt.Printf("Active: %t\n", user.Active)
 	// Output:
-	// Inserted user with ID: 6
+	// Inserted user with ID: 7
 	// Active: true
 }
 
@@ -120,9 +120,9 @@ func ExampleDB_Update() {
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
-	// Update multiple users
-	rowsAffected, err := db.Update(ctx, &User{}, "WHERE active = $active", microrm.Args{
-		"active": false,
+	// Update user status
+	rowsAffected, err := db.Update(ctx, &User{}, "WHERE email = $email", microrm.Args{
+		"email": "morty@c137.net",
 	}, microrm.Updates{
 		"Active": true,
 	})
@@ -146,10 +146,10 @@ func ExampleDB_UpdateRecord() {
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
-	// Get a user
+	// Get an existing user
 	var user User
 	err = db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
-		"email": "john@example.com",
+		"email": "rick@c137.net",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -157,7 +157,7 @@ func ExampleDB_UpdateRecord() {
 
 	// Update the user record - UpdatedAt will be set automatically
 	err = db.UpdateRecord(ctx, &user, microrm.Updates{
-		"Name": "John Doe Jr.",
+		"Name": "Rick Sanchez (Scientist)",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -165,7 +165,7 @@ func ExampleDB_UpdateRecord() {
 
 	fmt.Printf("Updated user: %s\n", user.Name)
 	// Output:
-	// Updated user: John Doe Jr.
+	// Updated user: Rick Sanchez (Scientist)
 }
 
 func ExampleDB_Delete() {
@@ -179,17 +179,18 @@ func ExampleDB_Delete() {
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
-	// Delete inactive users
-	rowsAffected, err := db.Delete(ctx, &User{}, "WHERE active = $active", microrm.Args{
-		"active": false,
+	// Delete users
+	rowsAffected, err := db.Delete(ctx, &User{}, "WHERE email LIKE $pattern AND active = $active", microrm.Args{
+		"pattern": "%@winterfell.got",
+		"active":  false,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Deleted %d inactive users\n", rowsAffected)
+	fmt.Printf("Deleted %d users\n", rowsAffected)
 	// Output:
-	// Deleted 0 inactive users
+	// Deleted 1 users
 }
 
 func ExampleDB_DeleteRecord() {
@@ -203,10 +204,10 @@ func ExampleDB_DeleteRecord() {
 	db := microrm.New(sqlDB)
 	ctx := context.Background()
 
-	// Get a user to delete
+	// Get an existing user to delete
 	var user User
 	err = db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
-		"email": "delete-me@example.com",
+		"email": "jon@winterfell.got",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -237,8 +238,8 @@ func ExampleDB_Transaction() {
 	err = db.Transaction(ctx, func(tx *microrm.DB) error {
 		// Insert a new user
 		user := &User{
-			Name:   "Transaction User",
-			Email:  "tx@example.com",
+			Name:   "Jesse Pinkman",
+			Email:  "jesse@breakingbad.com",
 			Active: true,
 		}
 		if err := tx.Insert(ctx, user); err != nil {
@@ -247,7 +248,7 @@ func ExampleDB_Transaction() {
 
 		// Update another user in the same transaction
 		_, err := tx.Update(ctx, &User{}, "WHERE email = $email", microrm.Args{
-			"email": "other@example.com",
+			"email": "rick@c137.net",
 		}, microrm.Updates{
 			"Active": false,
 		})
@@ -278,10 +279,11 @@ func ExampleDB_Query() {
 	rows, err := db.Query(ctx, `
 		SELECT name, email
 		FROM users
-		WHERE active = $active
+		WHERE email LIKE $pattern AND active = $active
 		ORDER BY name LIMIT 2
 	`, microrm.Args{
-		"active": true,
+		"pattern": "%@fbi.gov",
+		"active":  true,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -296,8 +298,8 @@ func ExampleDB_Query() {
 		fmt.Printf("%s (%s)\n", name, email)
 	}
 	// Output:
-	// Alice Smith (alice@example.com)
-	// Bob Johnson (bob@example.com)
+	// Dana Scully (scully@fbi.gov)
+	// Fox Mulder (mulder@fbi.gov)
 }
 
 func ExampleDB_Exec() {
@@ -315,9 +317,9 @@ func ExampleDB_Exec() {
 	result, err := db.Exec(ctx, `
 		UPDATE users
 		SET updated_at = NOW()
-		WHERE active = $active
+		WHERE email LIKE $pattern
 	`, microrm.Args{
-		"active": true,
+		"pattern": "%@c137.net",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -330,5 +332,5 @@ func ExampleDB_Exec() {
 
 	fmt.Printf("Updated %d users\n", rowsAffected)
 	// Output:
-	// Updated 5 users
+	// Updated 2 users
 }
