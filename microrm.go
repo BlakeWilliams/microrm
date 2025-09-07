@@ -30,7 +30,7 @@ type (
 	// DB is a wrapper around sql.DB that provides lightweight ORM-like functionality.
 	DB struct {
 		db             queryable
-		modelTypeCache sync.Map
+		modelTypeCache *sync.Map
 		Pluralizer     Pluralizer
 	}
 
@@ -49,7 +49,7 @@ type (
 
 // New initializes a new DB instance with the provided sql.DB connection.
 func New(db *sql.DB) *DB {
-	return &DB{db: db, Pluralizer: defaultPluralizer}
+	return &DB{db: db, Pluralizer: defaultPluralizer, modelTypeCache: &sync.Map{}}
 }
 
 // newModelType creates a new modelType for the given destination
