@@ -1,4 +1,4 @@
-package microrm
+package dbmap
 
 import (
 	"context"
@@ -63,7 +63,7 @@ func setupDB(t *testing.T) *sql.DB {
 	port := getEnv("MYSQL_PORT", "3306")
 	user := getEnv("MYSQL_USER", "root")
 	password := getEnv("MYSQL_PASSWORD", "")
-	database := getEnv("MYSQL_DATABASE", "microrm_test")
+	database := getEnv("MYSQL_DATABASE", "dbmap_test")
 
 	rootDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/", user, password, host, port)
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true", user, password, host, port, database)

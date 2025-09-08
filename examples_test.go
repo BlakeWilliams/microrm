@@ -1,4 +1,4 @@
-package microrm_test
+package dbmap_test
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/blakewilliams/microrm"
+	"github.com/blakewilliams/dbmap"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -23,12 +23,12 @@ type User struct {
 func ExampleDB_Select() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Select a single user by email
 	var user User
-	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
+	err := db.Select(ctx, &user, "WHERE email = $email", dbmap.Args{
 		"email": "mulder@xfiles.gov",
 	})
 	if err != nil {
@@ -38,7 +38,7 @@ func ExampleDB_Select() {
 
 	// Select multiple active users
 	var activeUsers []User
-	err = db.Select(ctx, &activeUsers, "WHERE email LIKE $pattern AND active = $active ORDER BY name LIMIT 2", microrm.Args{
+	err = db.Select(ctx, &activeUsers, "WHERE email LIKE $pattern AND active = $active ORDER BY name LIMIT 2", dbmap.Args{
 		"pattern": "%@xfiles.gov",
 		"active":  true,
 	})
@@ -55,7 +55,7 @@ func ExampleDB_Select() {
 func ExampleDB_Insert() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Insert a new user - ID and timestamps will be set automatically
@@ -80,13 +80,13 @@ func ExampleDB_Insert() {
 func ExampleDB_Update() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Update user status
-	rowsAffected, err := db.Update(ctx, &User{}, "WHERE email = $email", microrm.Args{
+	rowsAffected, err := db.Update(ctx, &User{}, "WHERE email = $email", dbmap.Args{
 		"email": "skinner@xfiles.gov",
-	}, microrm.Updates{
+	}, dbmap.Updates{
 		"Active": true,
 	})
 	if err != nil {
@@ -101,12 +101,12 @@ func ExampleDB_Update() {
 func ExampleDB_UpdateRecord() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Get an existing user
 	var user User
-	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
+	err := db.Select(ctx, &user, "WHERE email = $email", dbmap.Args{
 		"email": "mulder@xfiles.gov",
 	})
 	if err != nil {
@@ -114,7 +114,7 @@ func ExampleDB_UpdateRecord() {
 	}
 
 	// Update the user record - UpdatedAt will be set automatically
-	err = db.UpdateRecord(ctx, &user, microrm.Updates{
+	err = db.UpdateRecord(ctx, &user, dbmap.Updates{
 		"Name": "Fox Mulder (FBI Agent)",
 	})
 	if err != nil {
@@ -129,11 +129,11 @@ func ExampleDB_UpdateRecord() {
 func ExampleDB_Delete() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Delete users
-	rowsAffected, err := db.Delete(ctx, &User{}, "WHERE email LIKE $pattern AND active = $active", microrm.Args{
+	rowsAffected, err := db.Delete(ctx, &User{}, "WHERE email LIKE $pattern AND active = $active", dbmap.Args{
 		"pattern": "%@xfiles.gov",
 		"active":  false,
 	})
@@ -149,12 +149,12 @@ func ExampleDB_Delete() {
 func ExampleDB_DeleteRecord() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Get an existing user to delete
 	var user User
-	err := db.Select(ctx, &user, "WHERE email = $email", microrm.Args{
+	err := db.Select(ctx, &user, "WHERE email = $email", dbmap.Args{
 		"email": "scully@xfiles.gov",
 	})
 	if err != nil {
@@ -175,10 +175,10 @@ func ExampleDB_DeleteRecord() {
 func ExampleDB_Transaction() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
-	err := db.Transaction(ctx, func(tx *microrm.DB) error {
+	err := db.Transaction(ctx, func(tx *dbmap.DB) error {
 		// Insert a new user
 		user := &User{
 			Name:   "Monica Reyes",
@@ -190,9 +190,9 @@ func ExampleDB_Transaction() {
 		}
 
 		// Update another user in the same transaction
-		_, err := tx.Update(ctx, &User{}, "WHERE email = $email", microrm.Args{
+		_, err := tx.Update(ctx, &User{}, "WHERE email = $email", dbmap.Args{
 			"email": "mulder@xfiles.gov",
-		}, microrm.Updates{
+		}, dbmap.Updates{
 			"Active": false,
 		})
 		return err
@@ -210,7 +210,7 @@ func ExampleDB_Transaction() {
 func ExampleDB_Query() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Execute a raw query with named parameters
@@ -219,7 +219,7 @@ func ExampleDB_Query() {
 		FROM users
 		WHERE email LIKE $pattern AND active = $active
 		ORDER BY name LIMIT 2
-	`, microrm.Args{
+	`, dbmap.Args{
 		"pattern": "%@xfiles.gov",
 		"active":  true,
 	})
@@ -243,7 +243,7 @@ func ExampleDB_Query() {
 func ExampleDB_Exec() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
-	db := microrm.New(sqlDB)
+	db := dbmap.New(sqlDB)
 	ctx := context.Background()
 
 	// Execute a raw SQL statement
@@ -251,7 +251,7 @@ func ExampleDB_Exec() {
 		UPDATE users
 		SET active = $active
 		WHERE email LIKE $pattern
-	`, microrm.Args{
+	`, dbmap.Args{
 		"active":  false,
 		"pattern": "%@xfiles.gov",
 	})

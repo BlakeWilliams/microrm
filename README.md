@@ -1,17 +1,17 @@
-# micrORM
+# DBmap
 
-`microrm` is a minimalistic "ORM" for Go that provides basic utilities for mapping Go structs to database tables with a focus on ease-of-use.
+`dbmap` is a minimalistic "ORM"/database mapper for Go that provides basic utilities for mapping Go structs to database tables with a focus on ease-of-use.
 
 ## Example usage
 
-While `microrm` is designed as a minimal ORM, its primary goal is to reduce boilerplate and help developers fall into the "pit of success". For example, all queries run through `microrm` use named parameters to avoid easy-to-make mistakes with positional parameters.
+The primary goal of DBMap is to reduce boilerplate and help developers fall into the "pit of success". For example, all queries run through `dbmap` use named parameters to avoid easy-to-make mistakes with positional parameters.
 
 e.g. `WHERE id = $ID` instead of `WHERE id = ?` + positional args.
 
 ```go
 conn := sql.Open("sqlite3", ":memory:")
 defer conn.Close()
-db := microrm.New(conn)
+db := dbmap.New(conn)
 db.MapNameToTable("User", "users") // map struct name to table name
 
 type User struct {
@@ -25,12 +25,12 @@ type User struct {
 
 // Select a single record
 var user User
-// microrm automatically generates the necessary columns and table name
-err := db.Select(ctx, &user, "WHERE id = $ID", microrm.Args{"ID": 1})
+// dbmap automatically generates the necessary columns and table name
+err := db.Select(ctx, &user, "WHERE id = $ID", dbmap.Args{"ID": 1})
 
 // Select multiple records
 var users []User
-err = db.Select(ctx, &users, "WHERE name LIKE $pattern", microrm.Args{"pattern": "A%"})
+err = db.Select(ctx, &users, "WHERE name LIKE $pattern", dbmap.Args{"pattern": "A%"})
 
 // Insert a new record
 newUser := User{Name: "Alice"}
@@ -39,12 +39,12 @@ fmt.Println("New user ID:", newUser.ID) // ID's are automatically populated afte
 
 // Update a specific record by ID
 user := &User{ID: 1, Name: "Alice"}
-err = db.UpdateRecord(ctx, user, microrm.Updates{"name": "Alicia"})
+err = db.UpdateRecord(ctx, user, dbmap.Updates{"name": "Alicia"})
 // The struct is automatically updated in memory
 fmt.Println("Updated user name:", user.Name)
 
 // Update arbitrary rows
-rowsAffected, err := db.Update(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alice"}, microrm.Updates{"name": "Alicia"})
+rowsAffected, err := db.Update(ctx, &User{}, "WHERE name = $name", dbmap.Args{"name": "Alice"}, dbmap.Updates{"name": "Alicia"})
 fmt.Println("Updated rows:", rowsAffected)
 
 // Delete a specific record (uses ID)
@@ -59,13 +59,13 @@ users := []*User{
 rowsAffected, err = db.DeleteRecords(ctx, users)
 
 // Delete arbitrary records
-rowsAffected, err = db.Delete(ctx, &User{}, "WHERE name = $name", microrm.Args{"name": "Alicia"})
+rowsAffected, err = db.Delete(ctx, &User{}, "WHERE name = $name", dbmap.Args{"name": "Alicia"})
 fmt.Println("Deleted rows:", rowsAffected)
 ```
 
 ### Escaping $
 
-Since `microrm` uses `$` for named parameters, if you need to use a literal `$` in your SQL (e.g. in a string), you can escape it by using `$$`.
+Since `dbmap` uses `$` for named parameters, if you need to use a literal `$` in your SQL (e.g. in a string), you can escape it by using `$$`.
 
 ## Features (and to-do)
 

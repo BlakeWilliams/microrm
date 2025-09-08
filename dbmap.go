@@ -1,4 +1,4 @@
-// Package microrm is a lightweight, struct based ORM for Go that simplifies database interactions without completely abstracting SQL.
+// package dbmap is a lightweight, struct based ORM for Go that simplifies database interactions without completely abstracting SQL.
 //
 // All methods use named paramters instead of driver specific placeholders in
 // SQL queries/fragments. For example, a simple SELECT statement will look like:
@@ -8,7 +8,7 @@
 //
 // This enables more readable queries while avoiding the boilerplate+pitfalls of
 // positional query arguments.
-package microrm
+package dbmap
 
 import (
 	"context"
@@ -436,7 +436,7 @@ func (d *DB) Update(ctx context.Context, structType any, queryFragment string, a
 }
 
 // Query calls the underlying sql.DB Query method, but uses named parameters
-// like other microrm methods. Query returns sql.Rows, which the caller is
+// like other dbmap methods. Query returns sql.Rows, which the caller is
 // responsible for closing.
 func (d *DB) Query(ctx context.Context, sql string, args map[string]any) (*sql.Rows, error) {
 	sql, argSlice, err := d.replaceNames(sql, args)
@@ -447,7 +447,7 @@ func (d *DB) Query(ctx context.Context, sql string, args map[string]any) (*sql.R
 }
 
 // Exec calls the underlying sql.DB Exec method, but uses named parameters like
-// other microrm methods.
+// other dbmap methods.
 func (d *DB) Exec(ctx context.Context, sql string, args map[string]any) (sql.Result, error) {
 	sql, argSlice, err := d.replaceNames(sql, args)
 	if err != nil {

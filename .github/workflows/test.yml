@@ -15,7 +15,7 @@ jobs:
         image: mysql:8.0
         env:
           MYSQL_ROOT_PASSWORD: password
-          MYSQL_DATABASE: microrm_test
+          MYSQL_DATABASE: dbmap_test
         ports:
           - 3306:3306
         options: >-
@@ -60,5 +60,5 @@ jobs:
           MYSQL_PORT: 3306
           MYSQL_USER: root
           MYSQL_PASSWORD: password
-          MYSQL_DATABASE: microrm_test
+          MYSQL_DATABASE: dbmap_test
         run: go test -v -race ./...

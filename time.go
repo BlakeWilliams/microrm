@@ -1,4 +1,4 @@
-package microrm
+package dbmap
 
 import "time"
 
