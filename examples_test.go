@@ -52,7 +52,7 @@ func ExampleDB_Select() {
 	// Found 2 active users
 }
 
-func ExampleDB_Insert() {
+func ExampleDB_InsertRecord() {
 	sqlDB, cleanup := setupDB()
 	defer cleanup()
 	db := dbmap.New(sqlDB)
@@ -65,7 +65,7 @@ func ExampleDB_Insert() {
 		Active: true,
 	}
 
-	err := db.Insert(ctx, user)
+	err := db.InsertRecord(ctx, user)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func ExampleDB_Transaction() {
 			Email:  "reyes@xfiles.gov",
 			Active: true,
 		}
-		if err := tx.Insert(ctx, user); err != nil {
+		if err := tx.InsertRecord(ctx, user); err != nil {
 			return err
 		}
 

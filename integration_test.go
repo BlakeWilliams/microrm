@@ -197,7 +197,7 @@ func TestInsert(t *testing.T) {
 
 		require.Equal(t, 0, kv.ID)
 
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 
 		require.NotEqual(t, 0, kv.ID, "ID should be populated after insert")
@@ -211,7 +211,7 @@ func TestInsert(t *testing.T) {
 			Value: "predefined ID value",
 		}
 
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 
 		require.Equal(t, 999, kv.ID, "Pre-existing ID should be preserved")
@@ -223,7 +223,7 @@ func TestInsert(t *testing.T) {
 			Value: "thetruthisoutthere",
 		}
 
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 
 		var retrievedKV KeyValue
@@ -254,7 +254,7 @@ func TestInsert(t *testing.T) {
 
 		require.True(t, kv.CreatedAt.IsZero(), "CreatedAt should be zero before insert")
 
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 
 		require.False(t, kv.CreatedAt.IsZero(), "CreatedAt should not be zero after insert")
@@ -282,7 +282,7 @@ func TestTransaction(t *testing.T) {
 				Value: "transaction commit test",
 			}
 
-			err := tx.Insert(ctx, kv)
+			err := tx.InsertRecord(ctx, kv)
 			if err != nil {
 				return err
 			}
@@ -314,7 +314,7 @@ func TestTransaction(t *testing.T) {
 				Value: "transaction rollback test",
 			}
 
-			err := tx.Insert(ctx, kv)
+			err := tx.InsertRecord(ctx, kv)
 			if err != nil {
 				return err
 			}
@@ -345,7 +345,7 @@ func TestTransaction(t *testing.T) {
 				Key:   "test.transaction.multi.1",
 				Value: "first record",
 			}
-			err := tx.Insert(ctx, kv1)
+			err := tx.InsertRecord(ctx, kv1)
 			if err != nil {
 				return err
 			}
@@ -354,7 +354,7 @@ func TestTransaction(t *testing.T) {
 				Key:   "test.transaction.multi.2",
 				Value: "second record",
 			}
-			err = tx.Insert(ctx, kv2)
+			err = tx.InsertRecord(ctx, kv2)
 			if err != nil {
 				return err
 			}
@@ -399,7 +399,7 @@ func TestTransaction(t *testing.T) {
 				Key:   "test.transaction.rollback.multi.1",
 				Value: "first record",
 			}
-			err := tx.Insert(ctx, kv1)
+			err := tx.InsertRecord(ctx, kv1)
 			if err != nil {
 				return err
 			}
@@ -408,7 +408,7 @@ func TestTransaction(t *testing.T) {
 				Key:   "test.transaction.rollback.multi.2",
 				Value: "second record",
 			}
-			err = tx.Insert(ctx, kv2)
+			err = tx.InsertRecord(ctx, kv2)
 			if err != nil {
 				return err
 			}
@@ -443,7 +443,7 @@ func TestTransaction(t *testing.T) {
 					Value: "panic test",
 				}
 
-				err := tx.Insert(ctx, kv)
+				err := tx.InsertRecord(ctx, kv)
 				if err != nil {
 					return err
 				}
@@ -487,7 +487,7 @@ func TestDelete(t *testing.T) {
 			Key:   "test.delete.single",
 			Value: "to be deleted",
 		}
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 
@@ -519,7 +519,7 @@ func TestDelete(t *testing.T) {
 		}
 
 		for i := range testRecords {
-			err := db.Insert(ctx, &testRecords[i])
+			err := db.InsertRecord(ctx, &testRecords[i])
 			require.NoError(t, err)
 		}
 
@@ -550,7 +550,7 @@ func TestDelete(t *testing.T) {
 			Key:   "test.delete.by.id",
 			Value: "delete by ID test",
 		}
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 		insertedID := kv.ID
@@ -586,7 +586,7 @@ func TestDelete(t *testing.T) {
 		}
 
 		for i := range testRecords {
-			err := db.Insert(ctx, &testRecords[i])
+			err := db.InsertRecord(ctx, &testRecords[i])
 			require.NoError(t, err)
 		}
 
@@ -618,7 +618,7 @@ func TestDeleteRecord(t *testing.T) {
 			Key:   "test.deleterecord.basic",
 			Value: "basic delete test",
 		}
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 		insertedID := kv.ID
@@ -664,7 +664,7 @@ func TestDeleteRecord(t *testing.T) {
 			Key:   "test.deleterecord.customid",
 			Value: "custom ID test",
 		}
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 
@@ -700,7 +700,7 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testRecords {
-			err := db.Insert(ctx, kv)
+			err := db.InsertRecord(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
@@ -731,7 +731,7 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testRecords {
-			err := db.Insert(ctx, kv)
+			err := db.InsertRecord(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
@@ -755,7 +755,7 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testRecordPtrs {
-			err := db.Insert(ctx, kv)
+			err := db.InsertRecord(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
@@ -807,7 +807,7 @@ func TestDeleteRecords(t *testing.T) {
 			Key:   "test.deleterecords.rollback.valid",
 			Value: "valid record",
 		}
-		err := db.Insert(ctx, validKV)
+		err := db.InsertRecord(ctx, validKV)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, validKV.ID)
 
@@ -852,7 +852,7 @@ func TestDeleteRecords(t *testing.T) {
 		}
 
 		for _, kv := range testKVs {
-			err := db.Insert(ctx, kv)
+			err := db.InsertRecord(ctx, kv)
 			require.NoError(t, err)
 			require.NotEqual(t, 0, kv.ID)
 		}
@@ -884,7 +884,7 @@ func TestUpdate(t *testing.T) {
 
 	t.Run("update single column", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.update.single", Value: "before"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 		require.NotZero(t, orig.ID)
 
 		rows, err := db.Update(ctx, &KeyValue{}, "WHERE `key` = $key", Args{"key": "test.update.single"}, Updates{"Value": "after"})
@@ -899,7 +899,7 @@ func TestUpdate(t *testing.T) {
 
 	t.Run("update multiple columns including key", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.update.multi.orig", Value: "before"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 		require.NotZero(t, orig.ID)
 
 		rows, err := db.Update(ctx, &KeyValue{}, "WHERE `key` = $key", Args{"key": "test.update.multi.orig"}, Updates{"Key": "test.update.multi.new", "Value": "after"})
@@ -926,7 +926,7 @@ func TestUpdate(t *testing.T) {
 	t.Run("update with invalid column returns error", func(t *testing.T) {
 		t.Skip("TODO")
 		orig := &KeyValue{Key: "test.update.invalidcol", Value: "before"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 
 		_, err := db.Update(ctx, &KeyValue{}, "WHERE `key` = $key", Args{"key": "test.update.invalidcol"}, Updates{"not_a_column": "x"})
 		require.Error(t, err)
@@ -934,7 +934,7 @@ func TestUpdate(t *testing.T) {
 
 	t.Run("update automatically sets UpdatedAt field", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.update.updatedat", Value: "original"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 		require.NotZero(t, orig.ID)
 
 		pastTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -977,7 +977,7 @@ func TestUpdateRecord(t *testing.T) {
 
 	t.Run("update single column by ID", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.updaterecord.single", Value: "before"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 		require.NotZero(t, orig.ID)
 		originalID := orig.ID
 
@@ -997,7 +997,7 @@ func TestUpdateRecord(t *testing.T) {
 
 	t.Run("update multiple columns by ID", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.updaterecord.multi", Value: "before"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 		require.NotZero(t, orig.ID)
 		originalID := orig.ID
 
@@ -1018,7 +1018,7 @@ func TestUpdateRecord(t *testing.T) {
 
 	t.Run("update with no changes returns success", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.updaterecord.nochange", Value: "unchanged"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 		require.NotZero(t, orig.ID)
 
 		err := db.UpdateRecord(ctx, orig, Updates{"Value": "unchanged"})
@@ -1043,7 +1043,7 @@ func TestUpdateRecord(t *testing.T) {
 
 	t.Run("update with empty updates should error", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.updaterecord.empty", Value: "value"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 
 		err := db.UpdateRecord(ctx, orig, Updates{})
 		require.Error(t, err)
@@ -1053,7 +1053,7 @@ func TestUpdateRecord(t *testing.T) {
 	t.Run("update with invalid column returns error", func(t *testing.T) {
 		t.Skip("TODO")
 		orig := &KeyValue{Key: "test.updaterecord.invalidcol", Value: "before"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 
 		err := db.UpdateRecord(ctx, orig, Updates{"not_a_column": "x"})
 		require.Error(t, err)
@@ -1071,7 +1071,7 @@ func TestUpdateRecord(t *testing.T) {
 			Key:   "test.updaterecord.customid",
 			Value: "original value",
 		}
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 		require.NotEqual(t, 0, kv.ID)
 
@@ -1102,7 +1102,7 @@ func TestUpdateRecord(t *testing.T) {
 
 	t.Run("update ID field should work", func(t *testing.T) {
 		orig := &KeyValue{Key: "test.updaterecord.updateid", Value: "value"}
-		require.NoError(t, db.Insert(ctx, orig))
+		require.NoError(t, db.InsertRecord(ctx, orig))
 		require.NotZero(t, orig.ID)
 		originalID := orig.ID
 
@@ -1140,7 +1140,7 @@ func TestUpdateRecord(t *testing.T) {
 			Value: "initial value",
 		}
 
-		err := db.Insert(ctx, kv)
+		err := db.InsertRecord(ctx, kv)
 		require.NoError(t, err)
 		require.NotZero(t, kv.ID)
 
@@ -1196,7 +1196,7 @@ func TestSqlNullTime(t *testing.T) {
 		require.False(t, nullTimeKV.CreatedAt.Valid)
 		require.False(t, nullTimeKV.UpdatedAt.Valid)
 
-		err := db.Insert(ctx, nullTimeKV)
+		err := db.InsertRecord(ctx, nullTimeKV)
 		require.NoError(t, err)
 		require.NotZero(t, nullTimeKV.ID)
 
@@ -1233,7 +1233,7 @@ func TestSqlNullTime(t *testing.T) {
 			Value: "initial value",
 		}
 
-		err := db.Insert(ctx, nullTimeKV)
+		err := db.InsertRecord(ctx, nullTimeKV)
 		require.NoError(t, err)
 		originalID := nullTimeKV.ID
 		originalCreatedAt := nullTimeKV.CreatedAt.Time

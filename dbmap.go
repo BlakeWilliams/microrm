@@ -170,8 +170,8 @@ func (d *DB) Select(ctx context.Context, model any, queryFragment string, args A
 	return nil
 }
 
-// Insert inserts a new record into the database based on the provided struct.
-func (d *DB) Insert(ctx context.Context, model any) error {
+// InsertRecord inserts a new record into the database based on the provided struct.
+func (d *DB) InsertRecord(ctx context.Context, model any) error {
 	modelType, err := d.newModelType(model)
 	if err != nil {
 		return fmt.Errorf("failed to insert data: %w", err)
