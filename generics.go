@@ -82,3 +82,15 @@ func (m *ModelDB[T]) UpdateRecord(ctx context.Context, model *T, updates Updates
 func (m *ModelDB[T]) DeleteRecord(ctx context.Context, model *T) (int64, error) {
 	return m.db.DeleteRecord(ctx, model)
 }
+
+// Exists returns true if any records exist using the given query fragment.
+func (m *ModelDB[T]) Exists(ctx context.Context, queryFragment string, args Args) (bool, error) {
+	var t T
+	return m.db.Exists(ctx, t, queryFragment, args)
+}
+
+// Count returns the number of records that match the provided query fragment.
+func (m *ModelDB[T]) Count(ctx context.Context, queryFragment string, args Args) (int64, error) {
+	var t T
+	return m.db.Count(ctx, t, queryFragment, args)
+}

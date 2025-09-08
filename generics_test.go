@@ -217,3 +217,45 @@ func TestModelDB_DeleteRecord(t *testing.T) {
 		require.Equal(t, sql.ErrNoRows, err)
 	})
 }
+
+func TestModelDB_Exists(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := setupDB(t)
+	db := New(sqlDB)
+
+	t.Run("returns true when record exists", func(t *testing.T) {
+		kvDB := M[KeyValue](db)
+		exists, err := kvDB.Exists(ctx, "WHERE `key` = $key", Args{
+			"key": "config.app.name",
+		})
+
+		require.NoError(t, err)
+		require.True(t, exists)
+	})
+}
+
+func TestModelDB_Count(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := setupDB(t)
+	db := New(sqlDB)
+
+	t.Run("returns correct count with WHERE condition", func(t *testing.T) {
+		kvDB := M[KeyValue](db)
+		count, err := kvDB.Count(ctx, "WHERE `key` LIKE $pattern", Args{
+			"pattern": "config.database.%",
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(2), count) // config.database.host and config.database.port
+	})
+
+	t.Run("returns zero count when no records match", func(t *testing.T) {
+		kvDB := M[KeyValue](db)
+		count, err := kvDB.Count(ctx, "WHERE `key` = $key", Args{
+			"key": "nonexistent.key",
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(0), count)
+	})
+}
