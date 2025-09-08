@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 type mockClock struct {
 	currentTime time.Time
 }
@@ -1371,7 +1370,6 @@ func TestExec(t *testing.T) {
 	})
 }
 
-
 func setupTestTables(db *sql.DB) error {
 	// Drop existing tables
 	dropSQL := `DROP TABLE IF EXISTS key_values, users;`
@@ -1511,4 +1509,76 @@ func requireKVsEqual(t *testing.T, expected, actual interface{}, msgAndArgs ...i
 	default:
 		t.Fatalf("expected must be []KeyValue or []*KeyValue, got %T", expected)
 	}
+}
+
+func TestExists(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := setupDB(t)
+	db := New(sqlDB)
+
+	t.Run("returns true when record exists", func(t *testing.T) {
+		exists, err := db.Exists(ctx, &KeyValue{}, "WHERE `key` = $key", Args{
+			"key": "config.app.name",
+		})
+
+		require.NoError(t, err)
+		require.True(t, exists)
+	})
+
+	t.Run("returns false when record does not exist", func(t *testing.T) {
+		exists, err := db.Exists(ctx, &KeyValue{}, "WHERE `key` = $key", Args{
+			"key": "nonexistent.key",
+		})
+
+		require.NoError(t, err)
+		require.False(t, exists)
+	})
+
+	t.Run("works with complex WHERE conditions", func(t *testing.T) {
+		exists, err := db.Exists(ctx, &KeyValue{}, "WHERE `key` LIKE $pattern AND `value` = $value", Args{
+			"pattern": "config.database.%",
+			"value":   "localhost",
+		})
+
+		require.NoError(t, err)
+		require.True(t, exists)
+	})
+
+	t.Run("returns false with complex WHERE conditions that don't match", func(t *testing.T) {
+		exists, err := db.Exists(ctx, &KeyValue{}, "WHERE `key` LIKE $pattern AND `value` = $value", Args{
+			"pattern": "config.database.%",
+			"value":   "nonexistent",
+		})
+
+		require.NoError(t, err)
+		require.False(t, exists)
+	})
+
+	t.Run("works with value struct instead of pointer", func(t *testing.T) {
+		exists, err := db.Exists(ctx, KeyValue{}, "WHERE `key` = $key", Args{
+			"key": "config.app.name",
+		})
+
+		require.NoError(t, err)
+		require.True(t, exists)
+	})
+
+	t.Run("returns error with invalid struct type", func(t *testing.T) {
+		var invalidType []KeyValue
+		_, err := db.Exists(ctx, invalidType, "WHERE `key` = $key", Args{
+			"key": "config.app.name",
+		})
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "destination must be a struct or pointer to a struct")
+	})
+
+	t.Run("returns error with missing named parameter", func(t *testing.T) {
+		_, err := db.Exists(ctx, &KeyValue{}, "WHERE `key` = $nonexistent", Args{
+			"key": "config.app.name",
+		})
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing argument for named parameter")
+	})
 }

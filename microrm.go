@@ -13,6 +13,7 @@ package microrm
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -20,6 +21,11 @@ import (
 	"sync"
 	"time"
 	"unicode"
+)
+
+var (
+	// ErrNoUpdates is returned when no updates are provided to an update operation
+	ErrNoUpdates = errors.New("no updates provided")
 )
 
 type (
@@ -369,7 +375,7 @@ func (d *DB) Update(ctx context.Context, structType any, queryFragment string, a
 		return 0, fmt.Errorf("destination must be a struct or pointer to a struct, got %s", modelType.baseType.Kind())
 	}
 	if len(updates) == 0 {
-		return 0, fmt.Errorf("no updates provided")
+		return 0, ErrNoUpdates
 	}
 
 	now := d.time.Now().UTC()
@@ -461,7 +467,7 @@ func (d *DB) UpdateRecord(ctx context.Context, model any, updates Updates) error
 		return fmt.Errorf("destination must be a pointer to a struct, got %s", modelType.baseType.Kind())
 	}
 	if len(updates) == 0 {
-		return fmt.Errorf("no updates provided")
+		return ErrNoUpdates
 	}
 
 	value := concreteValue(model)
@@ -556,6 +562,38 @@ func (d *DB) Transaction(ctx context.Context, fn func(tx *DB) error) error {
 
 	err = fn(txDB)
 	return err
+}
+
+func (d *DB) Exists(ctx context.Context, structType any, queryFragment string, args Args) (bool, error) {
+	modelType, err := newModelType(structType, d.Pluralizer)
+	if err != nil {
+		return false, err
+	}
+
+	if !modelType.isStructPointer && !modelType.isStruct {
+		return false, fmt.Errorf("destination must be a struct or pointer to a struct, got %s", modelType.baseType.Kind())
+	}
+
+	rows, err := d.Query(
+		ctx,
+		fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s "+queryFragment+")", modelType.tableName),
+		args,
+	)
+
+	if err != nil {
+		return false, err
+	}
+
+	var found bool
+	if rows.Next() {
+		err := rows.Scan(&found)
+
+		if err != nil {
+			return false, nil
+		}
+	}
+
+	return found, nil
 }
 
 func concreteValue(dest any) reflect.Value {

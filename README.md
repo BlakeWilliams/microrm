@@ -81,6 +81,7 @@ Since `microrm` uses `$` for named parameters, if you need to use a literal `$` 
 - [x] Support for standard DB `Exec` with named parameters.
 - [x] Support for standard DB `Query` with named parameters.
 - [x] Pluralize table names by default
+- [x] Support for `Exists`
 
 Not in scope, but welcome contributions:
 
