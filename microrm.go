@@ -596,6 +596,39 @@ func (d *DB) Exists(ctx context.Context, structType any, queryFragment string, a
 	return found, nil
 }
 
+func (d *DB) Count(ctx context.Context, structType any, queryFragment string, args Args) (int64, error) {
+	modelType, err := newModelType(structType, d.Pluralizer)
+	if err != nil {
+		return 0, err
+	}
+
+	if !modelType.isStructPointer && !modelType.isStruct {
+		return 0, fmt.Errorf("destination must be a struct or pointer to a struct, got %s", modelType.baseType.Kind())
+	}
+
+	rows, err := d.Query(
+		ctx,
+		fmt.Sprintf("SELECT COUNT(*) FROM %s "+queryFragment, modelType.tableName),
+		args,
+	)
+
+	if err != nil {
+		return 0, err
+	}
+
+	var count int64
+	if rows.Next() {
+		err := rows.Scan(&count)
+
+		if err != nil {
+			return 0, nil
+		}
+	}
+
+	return count, nil
+
+}
+
 func concreteValue(dest any) reflect.Value {
 	v := reflect.ValueOf(dest)
 	if v.Kind() == reflect.Pointer {

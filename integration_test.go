@@ -1366,7 +1366,6 @@ func TestExec(t *testing.T) {
 
 		_, err = db.Exec(ctx, "DELETE FROM key_values WHERE `key` = 'test.dollar'", map[string]any{})
 		require.NoError(t, err)
-
 	})
 }
 
@@ -1575,6 +1574,76 @@ func TestExists(t *testing.T) {
 
 	t.Run("returns error with missing named parameter", func(t *testing.T) {
 		_, err := db.Exists(ctx, &KeyValue{}, "WHERE `key` = $nonexistent", Args{
+			"key": "config.app.name",
+		})
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing argument for named parameter")
+	})
+}
+
+func TestCount(t *testing.T) {
+	ctx := context.Background()
+	sqlDB := setupDB(t)
+	db := New(sqlDB)
+
+	t.Run("returns correct count for all records", func(t *testing.T) {
+		count, err := db.Count(ctx, &KeyValue{}, "", Args{})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(5), count) // There are 5 records in the test data
+	})
+
+	t.Run("returns correct count with WHERE condition", func(t *testing.T) {
+		count, err := db.Count(ctx, &KeyValue{}, "WHERE `key` LIKE $pattern", Args{
+			"pattern": "config.database.%",
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(2), count) // config.database.host and config.database.port
+	})
+
+	t.Run("returns zero count when no records match", func(t *testing.T) {
+		count, err := db.Count(ctx, &KeyValue{}, "WHERE `key` = $key", Args{
+			"key": "nonexistent.key",
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(0), count)
+	})
+
+	t.Run("works with complex WHERE conditions", func(t *testing.T) {
+		count, err := db.Count(ctx, &KeyValue{}, "WHERE `key` LIKE $pattern AND `value` = $value", Args{
+			"pattern": "config.database.%",
+			"value":   "localhost",
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(1), count) // Only config.database.host matches
+	})
+
+	t.Run("returns zero with complex WHERE conditions that don't match", func(t *testing.T) {
+		count, err := db.Count(ctx, &KeyValue{}, "WHERE `key` LIKE $pattern AND `value` = $value", Args{
+			"pattern": "config.database.%",
+			"value":   "nonexistent",
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, int64(0), count)
+	})
+
+	t.Run("returns error with invalid struct type", func(t *testing.T) {
+		var invalidType []KeyValue
+		_, err := db.Count(ctx, invalidType, "WHERE `key` = $key", Args{
+			"key": "config.app.name",
+		})
+
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "destination must be a struct or pointer to a struct")
+	})
+
+	t.Run("returns error with missing named parameter", func(t *testing.T) {
+		_, err := db.Count(ctx, &KeyValue{}, "WHERE `key` = $nonexistent", Args{
 			"key": "config.app.name",
 		})
 
