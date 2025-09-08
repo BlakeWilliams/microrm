@@ -12,7 +12,6 @@ e.g. `WHERE id = $ID` instead of `WHERE id = ?` + positional args.
 conn := sql.Open("sqlite3", ":memory:")
 defer conn.Close()
 db := dbmap.New(conn)
-db.MapNameToTable("User", "users") // map struct name to table name
 
 type User struct {
     ID   int    `db:"id"`
@@ -21,6 +20,12 @@ type User struct {
     // Created and Updated at timestamps are automatically updated
     UpdatedAt time.Time `db:"updated_at"`
     CreatedAt time.Time `db:"created_at"`
+}
+
+// By default, table names are pluralized struct names (i.e. "users" for User),
+// but you can override this by implementing the TableName method.
+func (u *User) TableName() string {
+    return "my_users"
 }
 
 // Select a single record
@@ -69,12 +74,12 @@ Since `dbmap` uses `$` for named parameters, if you need to use a literal `$` in
 
 ## Features (and to-do)
 
-- [x] Support for `select`ing data via `DB.Select`.
-- [x] Support for `insert`ing data via `DB.Insert`.
+- [x] Support for `insert`ing structs via `DB.InsertRecord`.
+- [x] Support for `select`ing structs via `DB.Select`.
 - [x] Support for `update`ing data via `DB.Update`.
 - [x] Support for `update`ing specific structs via `DB.UpdateRecord`.
 - [x] Support for `delete`ing data via `DB.Delete`.
-- [x] Support for `delete`ing specific structs via `DB.DeleteRecord`.
+- [x] Support for `delete`ing single structs via `DB.DeleteRecord`.
 - [x] Support for `delete`ing multiple structs via `DB.DeleteRecords`.
 - [x] Support for transactions via `DB.Transaction`
 - [x] Updates `created_at` and `updated_at` fields automatically.
