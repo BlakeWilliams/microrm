@@ -2,8 +2,8 @@ package dbmap
 
 import "time"
 
-type Time struct{}
+type realClock struct{}
 
-func (t Time) Now() time.Time {
+func (t realClock) Now() time.Time {
 	return time.Now()
 }

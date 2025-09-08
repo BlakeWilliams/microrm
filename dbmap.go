@@ -76,7 +76,7 @@ func New(db *sql.DB) *DB {
 		db:             db,
 		Pluralizer:     defaultPluralizer,
 		modelTypeCache: &sync.Map{},
-		time:           Time{},
+		time:           realClock{},
 	}
 }
 
